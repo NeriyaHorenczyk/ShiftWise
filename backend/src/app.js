@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 
 import { authenticate } from './middleware/auth.middleware.js';
 import authRouter from './routes/auth.js';
+import usersRouter from './routes/users.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,4 +25,5 @@ app.use('/auth', authRouter);
 // Protected routes — more routers added here as we build each layer
 app.use(authenticate);
 
+app.use('/users', usersRouter)
 export default app;
