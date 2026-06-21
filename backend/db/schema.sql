@@ -27,6 +27,8 @@ CREATE TABLE passwords (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+
+{/* Add foreign key in order to avoid circular dependency */}
 ALTER TABLE departments
   ADD CONSTRAINT fk_dept_lead
   FOREIGN KEY (lead_id) REFERENCES users(id) ON DELETE SET NULL;
