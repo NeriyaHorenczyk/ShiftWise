@@ -7,6 +7,7 @@ import { dirname, join } from 'path';
 import { authenticate } from './middleware/auth.middleware.js';
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js'
+import departmentsRouter from './routes/departments.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,4 +27,6 @@ app.use('/auth', authRouter);
 app.use(authenticate);
 
 app.use('/users', usersRouter)
+app.use('/departments', departmentsRouter);
+
 export default app;
