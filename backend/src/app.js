@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-import authenticate from './middleware/auth.middleware.js';
+import { authenticate } from './middleware/auth.middleware.js';
 import authRouter from './routes/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
