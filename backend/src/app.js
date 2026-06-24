@@ -10,6 +10,7 @@ import usersRouter from './routes/users.js'
 import departmentsRouter from './routes/departments.js';
 import shiftsRouter from './routes/shifts.js'
 import availabilityRouter from './routes/availability.js';
+import swapsRouter from './routes/swaps.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,5 +33,6 @@ app.use('/users', usersRouter);
 app.use('/departments', departmentsRouter);
 app.use('/shifts', shiftsRouter);
 app.use('/availability', availabilityRouter);
+app.use('/swaps', swapsRouter);
 
 export default app;
