@@ -14,7 +14,7 @@ CREATE TABLE users (
   username VARCHAR(50) NOT NULL UNIQUE,
   email VARCHAR(100) NOT NULL UNIQUE,
   name VARCHAR(100),
-  role ENUM('admin', 'lead', 'employee') DEFAULT 'employee',
+  role ENUM('admin', 'lead', 'shift_manager', 'employee') DEFAULT 'employee',
   department_id CHAR(36),
   avatar_url VARCHAR(255),
   created_at DATETIME DEFAULT NOW(),
@@ -27,8 +27,7 @@ CREATE TABLE passwords (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-
-{/* Add foreign key in order to avoid circular dependency */}
+-- Add lead FK after users exists to avoid circular dependency
 ALTER TABLE departments
   ADD CONSTRAINT fk_dept_lead
   FOREIGN KEY (lead_id) REFERENCES users(id) ON DELETE SET NULL;
@@ -50,6 +49,7 @@ CREATE TABLE shift_assignments (
   id CHAR(36) PRIMARY KEY,
   shift_id CHAR(36) NOT NULL,
   user_id CHAR(36) NOT NULL,
+  is_shift_manager BOOLEAN DEFAULT FALSE,
   UNIQUE (shift_id, user_id),
   FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -59,9 +59,9 @@ CREATE TABLE availability (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
   week_start DATE NOT NULL,
-  day_of_week TINYINT NOT NULL,
+  day_of_week TINYINT NOT NULL, -- 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   slot ENUM('morning', 'afternoon', 'evening') NOT NULL,
-  status ENUM('available', 'unavailable', 'preferred') NOT NULL,
+  status ENUM('available', 'preferred') NOT NULL,
   UNIQUE (user_id, week_start, day_of_week, slot),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
