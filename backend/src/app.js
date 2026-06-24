@@ -9,6 +9,7 @@ import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js'
 import departmentsRouter from './routes/departments.js';
 import shiftsRouter from './routes/shifts.js'
+import availabilityRouter from './routes/availability.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,8 +28,9 @@ app.use('/auth', authRouter);
 // Protected routes — more routers added here as we build each layer
 app.use(authenticate);
 
-app.use('/users', usersRouter)
+app.use('/users', usersRouter);
 app.use('/departments', departmentsRouter);
-app.use('/shifts', shiftsRouter)
+app.use('/shifts', shiftsRouter);
+app.use('/availability', availabilityRouter);
 
 export default app;
