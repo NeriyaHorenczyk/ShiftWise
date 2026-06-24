@@ -82,7 +82,7 @@ export const submitAvailability = async (req, res) => {
       return res.status(400).json({ error: 'week_start must be a Sunday.' });
 
     const validSlots = ['morning', 'afternoon', 'evening'];
-    const validStatuses = ['available', 'unavailable', 'preferred'];
+    const validStatuses = ['available', 'preferred'];
 
     for (const s of slots) {
       if (s.day_of_week < 0 || s.day_of_week > 6)
