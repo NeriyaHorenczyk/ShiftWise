@@ -23,7 +23,7 @@ export const getSwaps = async (req, res) => {
     const params = [];
 
     // employees only see swaps they are involved in
-    if (req.user.role === 'employee') {
+    if (['employee', 'shift_manager'].includes(req.user.role)) {
       conditions.push('(sr.requester_id = ? OR sr.target_id = ?)');
       params.push(req.user.id, req.user.id);
     }

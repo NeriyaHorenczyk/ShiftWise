@@ -6,7 +6,7 @@ export const getAvailability = async (req, res) => {
     const { user_id, week_start } = req.query;
 
     // employees can only see their own availability
-    if (req.user.role === 'employee' && user_id !== req.user.id)
+    if (['employee', 'shift_manager'].includes(req.user.role) && user_id !== req.user.id)
       return res.status(403).json({ error: 'Access denied. You can only view your own availability.' });
 
     let query = 'SELECT * FROM availability WHERE 1=1';

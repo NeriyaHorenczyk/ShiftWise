@@ -33,7 +33,7 @@ export const getAllShifts = async (req, res) => {
     }
 
     // employees only see published shifts
-    if (req.user.role === 'employee') {
+    if (['employee', 'shift_manager'].includes(req.user.role)) {
       conditions.push('s.status = ?');
       params.push('published');
     }
@@ -68,7 +68,7 @@ export const getShiftById = async (req, res) => {
 
     // fetch assigned employees separately
     const [assignments] = await pool.query(`
-      SELECT u.id, u.name, u.username, u.avatar_url
+      SELECT u.id, u.name, u.username, u.avatar_url, sa.is_shift_manager
       FROM shift_assignments sa
       JOIN users u ON sa.user_id = u.id
       WHERE sa.shift_id = ?
@@ -195,36 +195,6 @@ export const publishShift = async (req, res) => {
 export const assignEmployee = async (req, res) => {
   try {
     const { id } = req.params;
-    const { user_id } = req.body;
-
-    if (!user_id)
-      return res.status(400).json({ error: 'user_id is required.' });
-
-    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
-    if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
-
-    const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [user_id]);
-    if (users.length === 0)
-      return res.status(404).json({ error: 'User not found.' });
-
-    const assignmentId = uuidv4();
-    await pool.query(
-      'INSERT INTO shift_assignments (id, shift_id, user_id) VALUES (?, ?, ?)',
-      [assignmentId, id, user_id]
-    );
-
-    res.status(201).json({ message: 'Employee assigned successfully.' });
-  } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({ error: 'Employee is already assigned to this shift.' });
-    res.status(500).json({ error: err.message });
-  }
-};
-
-export const assignEmployee = async (req, res) => {
-  try {
-    const { id } = req.params;
     const { user_id, is_shift_manager } = req.body;
 
     if (!user_id)
@@ -262,6 +232,24 @@ export const assignEmployee = async (req, res) => {
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
       return res.status(409).json({ error: 'Employee is already assigned to this shift.' });
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const unassignEmployee = async (req, res) => {
+  try {
+    const { id, userId } = req.params;
+
+    const [result] = await pool.query(
+      'DELETE FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
+      [id, userId]
+    );
+
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: 'Assignment not found.' });
+
+    res.json({ message: 'Employee unassigned successfully.' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };

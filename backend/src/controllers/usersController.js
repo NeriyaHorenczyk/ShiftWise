@@ -82,7 +82,7 @@ export const updateUserRole = async (req, res) => {
     const { id } = req.params;
     const { role, department_id } = req.body;
 
-    const validRoles = ['admin', 'lead', 'employee'];
+    const validRoles = ['admin', 'lead', 'shift_manager', 'employee'];
     if (!validRoles.includes(role))
       return res.status(400).json({ error: 'Invalid role.' });
 
