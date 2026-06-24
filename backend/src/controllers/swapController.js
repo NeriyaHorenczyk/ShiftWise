@@ -90,6 +90,16 @@ export const createSwap = async (req, res) => {
     if (targets[0].department_id !== shifts[0].department_id)
       return res.status(400).json({ error: 'You can only swap with employees in the same department.' });
 
+    // if requester is acting as shift manager in this shift,
+    // target must also be a shift_manager
+    const [requesterAssignment] = await pool.query(
+      'SELECT is_shift_manager FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
+      [shift_id, req.user.id]
+    );
+
+    if (requesterAssignment[0].is_shift_manager && targets[0].role !== 'shift_manager')
+      return res.status(400).json({ error: 'You are acting as shift manager in this shift. You can only swap with another shift manager.' });
+
     // check no pending swap already exists for this shift by this requester
     const [existing] = await pool.query(
       `SELECT id FROM swap_requests 
