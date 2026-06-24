@@ -11,9 +11,9 @@ const router = Router();
 
 router.route('/')
   .get(getSwaps)
-  .post(requireRole('employee'), createSwap);
+  .post(requireRole('employee', 'shift_manager'), createSwap);
 
-router.patch('/:id/respond', requireRole('employee'), respondToSwap);
+router.patch('/:id/respond', requireRole('employee', 'shift_manager'), respondToSwap);
 router.patch('/:id/approve', requireRole('admin', 'lead'), approveSwap);
 
 export default router;

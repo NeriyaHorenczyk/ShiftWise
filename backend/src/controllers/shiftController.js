@@ -222,20 +222,46 @@ export const assignEmployee = async (req, res) => {
   }
 };
 
-export const unassignEmployee = async (req, res) => {
+export const assignEmployee = async (req, res) => {
   try {
-    const { id, userId } = req.params;
+    const { id } = req.params;
+    const { user_id, is_shift_manager } = req.body;
 
-    const [result] = await pool.query(
-      'DELETE FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
-      [id, userId]
+    if (!user_id)
+      return res.status(400).json({ error: 'user_id is required.' });
+
+    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    if (shifts.length === 0)
+      return res.status(404).json({ error: 'Shift not found.' });
+
+    const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [user_id]);
+    if (users.length === 0)
+      return res.status(404).json({ error: 'User not found.' });
+
+    // only shift_managers can be assigned as shift manager
+    if (is_shift_manager && users[0].role !== 'shift_manager')
+      return res.status(400).json({ error: 'Only shift managers can be assigned as shift manager for a shift.' });
+
+    // only one shift manager allowed per shift
+    if (is_shift_manager) {
+      const [existing] = await pool.query(
+        'SELECT id FROM shift_assignments WHERE shift_id = ? AND is_shift_manager = true',
+        [id]
+      );
+      if (existing.length > 0)
+        return res.status(409).json({ error: 'This shift already has a shift manager assigned.' });
+    }
+
+    const assignmentId = uuidv4();
+    await pool.query(
+      'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES (?, ?, ?, ?)',
+      [assignmentId, id, user_id, is_shift_manager || false]
     );
 
-    if (result.affectedRows === 0)
-      return res.status(404).json({ error: 'Assignment not found.' });
-
-    res.json({ message: 'Employee unassigned successfully.' });
+    res.status(201).json({ message: 'Employee assigned successfully.' });
   } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY')
+      return res.status(409).json({ error: 'Employee is already assigned to this shift.' });
     res.status(500).json({ error: err.message });
   }
 };
