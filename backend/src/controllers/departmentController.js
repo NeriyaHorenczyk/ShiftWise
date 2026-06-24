@@ -4,7 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 export const getAllDepartments = async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT d.*, u.name AS lead_name
+      SELECT d.id, d.name, d.created_at,
+        u.name AS lead_name,
+        u.username AS lead_username
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
     `);
@@ -17,7 +19,9 @@ export const getAllDepartments = async (req, res) => {
 export const getDepartmentById = async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT d.*, u.name AS lead_name
+      SELECT d.id, d.name, d.created_at,
+        u.name AS lead_name,
+        u.username AS lead_username
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
       WHERE d.id = ?

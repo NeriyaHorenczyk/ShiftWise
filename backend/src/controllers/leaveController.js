@@ -5,7 +5,8 @@ export const getLeaveRequests = async (req, res) => {
   try {
     let query = `
       SELECT 
-        lr.*,
+        lr.id, lr.start_date, lr.end_date, lr.reason,
+        lr.document_url, lr.status, lr.lead_comment, lr.created_at,
         u.name AS user_name,
         u.username,
         r.name AS reviewed_by_name

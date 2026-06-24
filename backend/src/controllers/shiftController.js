@@ -6,7 +6,9 @@ export const getAllShifts = async (req, res) => {
     const { department_id, week_start, status } = req.query;
 
     let query = `
-      SELECT s.*,
+      SELECT 
+        s.id, s.title, s.start_time, s.end_time,
+        s.required_staff, s.status,
         d.name AS department_name,
         u.name AS created_by_name,
         COUNT(sa.user_id) AS assigned_count
@@ -54,7 +56,9 @@ export const getAllShifts = async (req, res) => {
 export const getShiftById = async (req, res) => {
   try {
     const [shifts] = await pool.query(`
-      SELECT s.*,
+      SELECT 
+        s.id, s.title, s.start_time, s.end_time,
+        s.required_staff, s.status,
         d.name AS department_name,
         u.name AS created_by_name
       FROM shifts s
@@ -68,7 +72,9 @@ export const getShiftById = async (req, res) => {
 
     // fetch assigned employees separately
     const [assignments] = await pool.query(`
-      SELECT u.id, u.name, u.username, u.avatar_url, sa.is_shift_manager
+      SELECT 
+        u.username, u.name, u.avatar_url,
+        sa.is_shift_manager
       FROM shift_assignments sa
       JOIN users u ON sa.user_id = u.id
       WHERE sa.shift_id = ?

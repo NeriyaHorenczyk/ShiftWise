@@ -5,14 +5,13 @@ export const getSwaps = async (req, res) => {
   try {
     let query = `
       SELECT 
-        sr.*,
+        sr.id, sr.status, sr.lead_comment, sr.created_at,
         requester.name AS requester_name,
         requester.username AS requester_username,
         target.name AS target_name,
         target.username AS target_username,
         s.title AS shift_title,
-        s.start_time,
-        s.end_time
+        s.start_time, s.end_time
       FROM swap_requests sr
       JOIN users requester ON sr.requester_id = requester.id
       JOIN users target ON sr.target_id = target.id

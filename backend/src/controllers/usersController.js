@@ -3,9 +3,43 @@ import bcrypt from 'bcrypt';
 
 export const getAllUsers = async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT id, username, email, name, role, department_id, avatar_url, created_at FROM users'
-    );
+    let query;
+
+    if (req.user.role === 'admin') {
+      // admin needs full data to manage users
+      query = `
+        SELECT 
+          id, username, email, name, role, 
+          department_id, avatar_url, created_at 
+        FROM users
+      `;
+    } else if (req.user.role === 'lead') {
+      // lead needs ids to assign shifts, but not emails
+      query = `
+        SELECT 
+          id, username, name, role,
+          department_id, avatar_url
+        FROM users
+        WHERE department_id = (
+          SELECT id FROM departments WHERE lead_id = ?
+        )
+      `;
+    } else {
+      // employees only see colleagues in their own department
+      // no ids, no emails
+      query = `
+        SELECT 
+          username, name, role,
+          department_id, avatar_url
+        FROM users
+        WHERE department_id = (
+          SELECT department_id FROM users WHERE id = ?
+        )
+      `;
+    }
+
+    const needsParam = ['lead', 'employee', 'shift_manager'].includes(req.user.role);
+    const [rows] = await pool.query(query, needsParam ? [req.user.id] : []);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

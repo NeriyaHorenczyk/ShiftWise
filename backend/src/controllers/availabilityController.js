@@ -51,7 +51,7 @@ export const getTeamAvailability = async (req, res) => {
 
     const [rows] = await pool.query(`
       SELECT 
-        a.*,
+        a.week_start, a.day_of_week, a.slot, a.status,
         u.name AS user_name,
         u.username,
         u.avatar_url
