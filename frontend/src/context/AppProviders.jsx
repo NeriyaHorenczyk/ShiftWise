@@ -1,5 +1,5 @@
-import { AuthProvider } from './AuthContext';
-import { ThemeProvider } from './ThemeContext';
+import { AuthProvider } from './AuthProvider';
+import { ThemeProvider } from './ThemeProvider';
 
 const AppProviders = ({ children }) => {
   return (
