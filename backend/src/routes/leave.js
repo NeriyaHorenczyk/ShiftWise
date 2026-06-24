@@ -14,7 +14,7 @@ router.route('/')
   .get(getLeaveRequests)
   .post(
     requireRole('employee', 'shift_manager'),
-    upload.single('document'),
+    upload.any(),
     createLeaveRequest
   );
 

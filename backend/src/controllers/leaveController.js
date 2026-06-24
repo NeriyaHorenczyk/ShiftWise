@@ -48,6 +48,7 @@ export const getLeaveRequests = async (req, res) => {
 };
 
 export const createLeaveRequest = async (req, res) => {
+
   try {
     const { start_date, end_date, reason } = req.body;
 
@@ -68,7 +69,9 @@ export const createLeaveRequest = async (req, res) => {
     if (overlapping.length > 0)
       return res.status(409).json({ error: 'You already have a leave request overlapping these dates.' });
 
-    const document_url = req.file ? `/uploads/${req.file.filename}` : null;
+      const document_url = req.files && req.files.length > 0 
+    ? `/uploads/${req.files[0].filename}` 
+    : null;
     const id = uuidv4();
 
     await pool.query(
