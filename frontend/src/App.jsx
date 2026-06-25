@@ -41,7 +41,11 @@ const App = () => {
         } />
 
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<NotFound />} />
+        <Route path="*" element={
+          <ProtectedRoute>
+            <NotFound />
+          </ProtectedRoute>
+        } />
       </Routes>
     </Router>
   );
