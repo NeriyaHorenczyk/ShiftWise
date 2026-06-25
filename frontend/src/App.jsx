@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Schedule from './pages/Schedule';
+import MyShifts from './pages/MyShifts';
 import NotFound from './pages/NotFound';
 
 const ProtectedRoute = ({ children }) => {
@@ -36,6 +37,12 @@ const App = () => {
         <Route path='/schedule' element ={
           <ProtectedRoute>
             <Schedule />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/my-shifts" element={
+          <ProtectedRoute>
+            <MyShifts />
           </ProtectedRoute>
         } />
 
