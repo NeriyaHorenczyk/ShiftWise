@@ -15,6 +15,7 @@ const router = Router();
 
 router.route('/')
   .get(getAllShifts)
+  // TODO: remove 'admin' from shift management routes when done testing
   .post(requireRole('admin', 'lead'), createShift);
 
 router.route('/:id')

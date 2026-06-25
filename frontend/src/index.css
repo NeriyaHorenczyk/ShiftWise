@@ -774,3 +774,300 @@ button[type='submit']:disabled {
   color: var(--text-secondary);
   text-transform: capitalize;
 }
+
+/* ── Schedule ── */
+.schedule-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-btn {
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dept-select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.dept-select:focus { border-color: var(--accent); }
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+  min-height: 400px;
+}
+
+.schedule-day {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  min-height: 200px;
+}
+
+.schedule-day:hover { border-color: var(--accent); }
+
+.schedule-day.today { border-color: var(--accent); }
+
+.schedule-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-day.today .schedule-day-header {
+  background: var(--accent);
+}
+
+.schedule-day.today .day-name { color: #ffffff; }
+
+.day-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.add-shift-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.125rem;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.add-shift-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.schedule-day.today .add-shift-btn { color: rgba(255,255,255,0.7); }
+.schedule-day.today .add-shift-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+.schedule-day-shifts {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.no-shifts {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.shift-card {
+  border-radius: 6px;
+  padding: 0.5rem 0.625rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.shift-card:hover { opacity: 0.85; }
+
+.shift-card.shift-draft {
+  background: var(--bg-secondary);
+  border-left-color: var(--warning);
+}
+
+.shift-card.shift-published {
+  background: #dcfce7;
+  border-left-color: var(--success);
+}
+
+[data-theme='dark'] .shift-card.shift-published {
+  background: #14532d33;
+}
+
+.shift-card-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.shift-card-time {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.125rem;
+}
+
+.shift-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.375rem;
+}
+
+.shift-card-staff {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ── Modals ── */
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.modal-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-lg { max-width: 560px; }
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.shift-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.shift-detail-section h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.625rem;
+}
+
+.assigned-list, .unassigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.assigned-item, .unassigned-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.assigned-item-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.assigned-name {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.sm-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.125rem 0.4rem;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.icon-btn-danger {
+  background: none;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.icon-btn-danger:hover { background: #fee2e2; }
+
+.assign-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-lg {
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
