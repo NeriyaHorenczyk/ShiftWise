@@ -79,6 +79,10 @@ export const api = {
     return request(`/shifts${query ? `?${query}` : ''}`);
   },
   getShiftById: (id) => request(`/shifts/${id}`),
+  getMyShifts: (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return request(`/shifts/my${query ? `?${query}` : ''}`);
+},
   createShift: (data) => request('/shifts', { method: 'POST', body: JSON.stringify(data) }),
   updateShift: (id, data) => request(`/shifts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteShift: (id) => request(`/shifts/${id}`, { method: 'DELETE' }),

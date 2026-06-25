@@ -86,6 +86,41 @@ export const getShiftById = async (req, res) => {
   }
 };
 
+export const getMyShifts = async (req, res) => {
+  try {
+    const { week_start } = req.query;
+
+    let query = `
+      SELECT 
+        s.id, s.title, s.start_time, s.end_time,
+        s.required_staff, s.status,
+        d.name AS department_name,
+        sa.is_shift_manager,
+        COUNT(sa2.user_id) AS assigned_count
+      FROM shift_assignments sa
+      JOIN shifts s ON sa.shift_id = s.id
+      JOIN departments d ON s.department_id = d.id
+      LEFT JOIN shift_assignments sa2 ON s.id = sa2.shift_id
+      WHERE sa.user_id = ?
+        AND s.status = 'published'
+    `;
+
+    const params = [req.user.id];
+
+    if (week_start) {
+      query += ` AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)`;
+      params.push(week_start, week_start);
+    }
+
+    query += ' GROUP BY s.id, sa.is_shift_manager ORDER BY s.start_time ASC';
+
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const createShift = async (req, res) => {
   try {
     const { department_id, title, start_time, end_time, required_staff } = req.body;

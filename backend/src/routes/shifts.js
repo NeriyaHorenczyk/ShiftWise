@@ -18,10 +18,13 @@ router.route('/')
   // TODO: remove 'admin' from shift management routes when done testing
   .post(requireRole('admin', 'lead'), createShift);
 
+router.get('/my', getMyShifts);
+
 router.route('/:id')
   .get(getShiftById)
   .put(requireRole('admin', 'lead'), updateShift)
   .delete(requireRole('admin', 'lead'), deleteShift);
+
 
 router.post('/:id/publish', requireRole('admin', 'lead'), publishShift);
 router.post('/:id/assign', requireRole('admin', 'lead'), assignEmployee);
