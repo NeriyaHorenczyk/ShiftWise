@@ -908,6 +908,15 @@ button[type='submit']:disabled {
   border-left-color: var(--success);
 }
 
+.shift-card.shift-understaffed {
+  background: #fef9c3;
+  border-left-color: var(--warning);
+}
+
+[data-theme='dark'] .shift-card.shift-understaffed {
+  background: #42200633;
+}
+
 [data-theme='dark'] .shift-card.shift-published {
   background: #14532d33;
 }
@@ -1144,4 +1153,8 @@ button[type='submit']:disabled {
   background: #14532d;
   color: #86efac;
   border-color: #166534;
+}
+
+input[type='time'] {
+  color-scheme: dark;
 }

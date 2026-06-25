@@ -13,9 +13,8 @@ import {
 import {
   LuChevronLeft,
   LuChevronRight,
-  //LuPlus,
+  LuPlus,
   LuUsers,
-  LuCheck,
   LuX,
 } from 'react-icons/lu';
 import ConfirmModal from '../components/ConfirmModal';
@@ -213,7 +212,13 @@ const Schedule = () => {
                   getShiftsForDay(day).map(shift => (
                     <div
                       key={shift.id}
-                      className={`shift-card shift-${shift.status}`}
+                      className={`shift-card ${
+                        shift.status === 'published'
+                          ? shift.assigned_count >= shift.required_staff
+                            ? 'shift-published'
+                            : 'shift-understaffed'
+                          : 'shift-draft'
+                      }`}
                       onClick={e => handleShiftClick(e, shift)}
                     >
                       <div className="shift-card-title">{shift.title}</div>
@@ -515,7 +520,7 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
                         onClick={() => handleAssign(u.id, false)}
                         disabled={loading}
                       >
-                        <LuCheck size={14} />
+                        <LuPlus size={14} />
                       </button>
                     </div>
                   </div>
@@ -535,7 +540,14 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
             {shift.status === 'draft' && (
               <button
                 className="btn btn-primary"
-                onClick={onPublish}
+                onClick={() => {
+                  const hasShiftManager = shift.assignments?.some(a => a.is_shift_manager === 1);
+                  if (!hasShiftManager) {
+                    setError('Cannot publish — assign a shift manager first.');
+                    return;
+                  }
+                  onPublish();
+                }}
                 disabled={!shift.assignments?.length}
               >
                 Publish
