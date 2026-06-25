@@ -3,6 +3,7 @@ import { requireRole } from '../middleware/auth.middleware.js';
 import {
   getAllShifts,
   getShiftById,
+  getMyShifts,
   createShift,
   updateShift,
   deleteShift,
