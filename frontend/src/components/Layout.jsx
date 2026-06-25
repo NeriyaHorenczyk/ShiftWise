@@ -18,6 +18,7 @@ import {
 } from 'react-icons/lu';
 import useAuth from '../hooks/useAuth';
 import useTheme from '../hooks/useTheme';
+import ConfirmModal from './ConfirmModal';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LuLayoutDashboard },
@@ -43,6 +44,7 @@ const Layout = ({ children }) => {
   const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -110,21 +112,30 @@ const Layout = ({ children }) => {
 
         <div className="sidebar-footer">
           <button className="theme-toggle" onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'}>
-          {isDark 
-              ? <LuSun size={18} className="sun-icon" /> 
+            {isDark
+              ? <LuSun size={18} className="sun-icon" />
               : <LuMoon size={18} className="moon-icon" />
-          }
-          {!collapsed && <span>{isDark ? 'Light mode' : 'Dark mode'}</span>}
+            }
+            {!collapsed && <span>{isDark ? 'Light mode' : 'Dark mode'}</span>}
           </button>
 
-          {!collapsed && (
             <div className="user-info">
-              <span className="user-name">{currentUser?.name}</span>
-              <span className="user-role">{currentUser?.role}</span>
+            <div className="user-avatar">
+                {currentUser?.avatar_url ? (
+                <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
+                ) : (
+                <span>{currentUser?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
+                )}
             </div>
-          )}
+            {!collapsed && (
+                <div className="user-details">
+                <span className="user-name">{currentUser?.name}</span>
+                <span className="user-role">{currentUser?.role}</span>
+                </div>
+            )}
+            </div>
 
-          <button className="logout-btn" onClick={handleLogout} title="Sign out">
+          <button className="logout-btn" onClick={() => setShowLogoutModal(true)} title="Sign out">
             <LuLogOut size={18} />
             {!collapsed && <span>Sign out</span>}
           </button>
@@ -135,6 +146,18 @@ const Layout = ({ children }) => {
       <main className="main-content">
         {children}
       </main>
+
+      {showLogoutModal && (
+        <ConfirmModal
+          title="Sign out"
+          message="Are you sure you want to sign out?"
+          confirmLabel="Sign out"
+          cancelLabel="Cancel"
+          danger={true}
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogoutModal(false)}
+        />
+      )}
     </div>
   );
 };
