@@ -132,6 +132,20 @@ const Schedule = () => {
     }
   };
 
+  const handleUnpublish = async () => {
+  try {
+    await api.unpublishShift(selectedShift.id);
+    const data = await api.getShifts({
+      department_id: selectedDept,
+      week_start: toDateString(weekStart),
+    });
+    setShifts(data);
+    setShowAssignModal(false);
+  } catch (err) {
+    setError(err.message);
+  }
+};
+
   const handleDelete = async () => {
     try {
       await api.deleteShift(selectedShift.id);
@@ -262,6 +276,7 @@ const Schedule = () => {
     canEdit={canEdit}
     onClose={() => setShowAssignModal(false)}
     onPublish={() => setShowPublishConfirm(true)}
+    onUnpublish={handleUnpublish}
     onDelete={() => setShowDeleteConfirm(true)}
     onAssigned={(updatedShift) => {
       setShifts(prev => prev.map(s => s.id === updatedShift.id ? updatedShift : s));
@@ -395,7 +410,7 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
 };
 
 // ── Shift Detail Modal ──────────────────────────────
-const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose, onPublish, onDelete, onAssigned }) => {
+const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose, onPublish, onUnpublish, onDelete, onAssigned }) => {
   const [shift, setShift] = useState(initialShift);
   const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -532,29 +547,34 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
 
         {error && <div className="error-message">{error}</div>}
 
-        {canEdit && (
-          <div className="modal-actions">
-            <button className="btn btn-danger" onClick={onDelete}>
-              Delete
-            </button>
-            {shift.status === 'draft' && (
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  const hasShiftManager = shift.assignments?.some(a => a.is_shift_manager === 1);
-                  if (!hasShiftManager) {
-                    setError('Cannot publish — assign a shift manager first.');
-                    return;
-                  }
-                  onPublish();
-                }}
-                disabled={!shift.assignments?.length}
-              >
-                Publish
+          {canEdit && (
+            <div className="modal-actions">
+              <button className="btn btn-danger" onClick={onDelete}>
+                Delete
               </button>
-            )}
-          </div>
-        )}
+              {shift.status === 'draft' && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    const hasShiftManager = shift.assignments?.some(a => a.is_shift_manager === 1);
+                    if (!hasShiftManager) {
+                      setError('Cannot publish — assign a shift manager first.');
+                      return;
+                    }
+                    onPublish();
+                  }}
+                  disabled={!shift.assignments?.length}
+                >
+                  Publish
+                </button>
+              )}
+              {shift.status === 'published' && (
+                <button className="btn btn-secondary" onClick={onUnpublish}>
+                  Unpublish
+                </button>
+              )}
+            </div>
+          )}
       </div>
     </div>
   );

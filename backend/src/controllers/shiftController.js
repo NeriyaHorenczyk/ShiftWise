@@ -231,7 +231,23 @@ export const publishShift = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-};
+}
+
+export const unpublishShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    if (shifts.length === 0)
+      return res.status(404).json({ error: 'Shift not found.' });
+    if (shifts[0].status === 'draft')
+      return res.status(400).json({ error: 'Shift is already a draft.' });
+
+    await pool.query('UPDATE shifts SET status = ? WHERE id = ?', ['draft', id]);
+    res.json({ message: 'Shift unpublished successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};;
 
 export const assignEmployee = async (req, res) => {
   try {

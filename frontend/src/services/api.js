@@ -87,6 +87,7 @@ export const api = {
   updateShift: (id, data) => request(`/shifts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteShift: (id) => request(`/shifts/${id}`, { method: 'DELETE' }),
   publishShift: (id) => request(`/shifts/${id}/publish`, { method: 'POST' }),
+  unpublishShift: (id) => request(`/shifts/${id}/unpublish`, { method: 'POST' }),
   assignEmployee: (id, data) => request(`/shifts/${id}/assign`, { method: 'POST', body: JSON.stringify(data) }),
   unassignEmployee: (shiftId, userId) => request(`/shifts/${shiftId}/assign/${userId}`, { method: 'DELETE' }),
 

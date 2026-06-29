@@ -8,6 +8,7 @@ import {
   updateShift,
   deleteShift,
   publishShift,
+  unpublishShift,
   assignEmployee,
   unassignEmployee
 } from '../controllers/shiftController.js';
@@ -28,6 +29,7 @@ router.route('/:id')
 
 
 router.post('/:id/publish', requireRole('admin', 'lead'), publishShift);
+router.post('/:id/unpublish', requireRole('admin', 'lead'), unpublishShift);
 router.post('/:id/assign', requireRole('admin', 'lead'), assignEmployee);
 router.delete('/:id/assign/:userId', requireRole('admin', 'lead'), unassignEmployee);
 
