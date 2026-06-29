@@ -15,6 +15,6 @@ router.route('/:id')
   .get(getUserById)
   .put(requireSelfOrAdmin, updateUser)
   .delete(requireRole('admin'), deleteUser);
-router.patch('/:id/role', requireRole('admin'), updateUserRole);
+router.patch('/:id/role', requireRole('admin', 'lead'), updateUserRole);
 
 export default router;

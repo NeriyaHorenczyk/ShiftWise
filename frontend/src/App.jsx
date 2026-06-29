@@ -11,6 +11,7 @@ import NotFound from './pages/NotFound';
 import Availability from './pages/Availability';
 import Swaps from './pages/Swaps';
 import Leave from './pages/Leave';
+import Team from './pages/Team';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -64,6 +65,14 @@ const App = () => {
         <Route path="/leave" element={
           <ProtectedRoute>
             <Leave />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/team" element={
+          <ProtectedRoute>
+            <RoleRoute roles={['admin', 'lead']}>
+              <Team />
+            </RoleRoute>
           </ProtectedRoute>
         } />
 

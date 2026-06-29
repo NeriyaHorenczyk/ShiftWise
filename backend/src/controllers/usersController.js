@@ -3,43 +3,43 @@ import bcrypt from 'bcrypt';
 
 export const getAllUsers = async (req, res) => {
   try {
+    const { department_id } = req.query;
+    const params = [];
     let query;
 
     if (req.user.role === 'admin') {
-      // admin needs full data to manage users
       query = `
-        SELECT 
-          id, username, email, name, role, 
-          department_id, avatar_url, created_at 
+        SELECT id, username, email, name, role,
+          department_id, avatar_url, created_at
         FROM users
       `;
+      if (department_id) {
+        query += ' WHERE department_id = ?';
+        params.push(department_id);
+      }
     } else if (req.user.role === 'lead') {
-      // lead needs ids to assign shifts, but not emails
       query = `
-        SELECT 
-          id, username, name, role,
+        SELECT id, username, name, role,
           department_id, avatar_url
         FROM users
         WHERE department_id = (
           SELECT id FROM departments WHERE lead_id = ?
         )
       `;
+      params.push(req.user.id);
     } else {
-      // employees only see colleagues in their own department
-      // no ids, no emails
       query = `
-        SELECT 
-          username, name, role,
+        SELECT username, name, role,
           department_id, avatar_url
         FROM users
         WHERE department_id = (
           SELECT department_id FROM users WHERE id = ?
         )
       `;
+      params.push(req.user.id);
     }
 
-    const needsParam = ['lead', 'employee', 'shift_manager'].includes(req.user.role);
-    const [rows] = await pool.query(query, needsParam ? [req.user.id] : []);
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,7 +119,11 @@ export const updateUserRole = async (req, res) => {
     const validRoles = ['admin', 'lead', 'shift_manager', 'employee'];
     if (!validRoles.includes(role))
       return res.status(400).json({ error: 'Invalid role.' });
-
+  
+    if (req.user.role === 'lead') {
+      if (!['employee', 'shift_manager'].includes(role))
+        return res.status(403).json({ error: 'Leads can only promote to shift manager or demote to employee.' });
+    }
     const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
     if (users.length === 0) return res.status(404).json({ error: 'User not found.' });
 
