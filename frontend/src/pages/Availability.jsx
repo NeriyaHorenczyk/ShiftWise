@@ -8,6 +8,7 @@ import {
   isToday,
 } from '../utils/dateUtils';
 import { LuChevronLeft, LuChevronRight } from 'react-icons/lu';
+import useAuth from '../hooks/useAuth';
 
 const SLOTS = ['morning', 'afternoon', 'evening'];
 const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
@@ -26,6 +27,8 @@ const Availability = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const { currentUser } = useAuth();
+
 
   const weekDays = getWeekDays(weekStart);
 
@@ -36,8 +39,9 @@ const Availability = () => {
       try {
         const data = await api.getAvailability({
           week_start: toDateString(weekStart),
+          user_id: currentUser.id,
         });
-
+        
         // build grid from API response
         // grid[day_of_week][slot] = status
         const newGrid = {};
@@ -53,7 +57,7 @@ const Availability = () => {
       }
     };
     loadAvailability();
-  }, [weekStart]);
+  }, [weekStart, currentUser.id]);
 
   const handleCellClick = (dayIndex, slot) => {
     const current = grid[dayIndex]?.[slot] || null;
@@ -91,19 +95,24 @@ const Availability = () => {
         });
       });
 
+    console.log('slots to save:', slots);
+    console.log('grid:', grid);
+
       if (slots.length === 0) {
+        console.log('deleting week...');
         // clear the whole week
         await api.deleteAvailability(toDateString(weekStart));
+        console.log('deleted');
       } else {
         await api.submitAvailability({
           week_start: toDateString(weekStart),
           slots,
         });
       }
-
       setSuccess('Availability saved successfully.');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
+      console.log('error:', err);
       setError(err.message);
     } finally {
       setSaving(false);

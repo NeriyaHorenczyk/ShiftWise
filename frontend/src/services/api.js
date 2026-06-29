@@ -93,8 +93,8 @@ export const api = {
 
   // Availability
   getAvailability: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
-    return request(`/availability${query ? `?${query}` : ''}`);
+    const query = new URLSearchParams({ ...params, _t: Date.now() }).toString();
+    return request(`/availability?${query}`);
   },
   getTeamAvailability: (params = {}) => {
     const query = new URLSearchParams(params).toString();
