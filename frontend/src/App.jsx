@@ -9,6 +9,7 @@ import Schedule from './pages/Schedule';
 import MyShifts from './pages/MyShifts';
 import NotFound from './pages/NotFound';
 import Availability from './pages/Availability';
+import Swaps from './pages/Swaps';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -50,6 +51,12 @@ const App = () => {
         <Route path="/availability" element={
           <ProtectedRoute>
             <Availability />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/swaps" element={
+          <ProtectedRoute>
+            <Swaps />
           </ProtectedRoute>
         } />
 

@@ -1240,3 +1240,141 @@ input[type='time'] {
 .legend-dot.gray { background: var(--border); }
 .legend-dot.yellow { background: #f59e0b; }
 .legend-dot.green { background: #16a34a; }
+
+
+/* ── Swaps ── */
+.swaps-section {
+  margin-bottom: 2rem;
+}
+
+.swaps-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.count-badge {
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 99px;
+}
+
+.swaps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.swap-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.swap-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.swap-card-shift {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.swap-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.swap-shift-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.swap-date {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.swap-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.swap-parties {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.swap-party {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.swap-party.is-you .party-name {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.party-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.party-name {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.swap-arrow {
+  color: var(--text-secondary);
+  margin-top: 1rem;
+}
+
+.swap-shift-time {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.swap-comment {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+}
+
+.comment-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.swap-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
