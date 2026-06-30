@@ -12,6 +12,7 @@ import shiftsRouter from './routes/shifts.js'
 import availabilityRouter from './routes/availability.js';
 import swapsRouter from './routes/swaps.js';
 import leaveRouter from './routes/leave.js';
+import reportsRouter from './routes/reports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,5 +37,6 @@ app.use('/shifts', shiftsRouter);
 app.use('/availability', availabilityRouter);
 app.use('/swaps', swapsRouter);
 app.use('/leave', leaveRouter);
+app.use('/reports', reportsRouter);
 
 export default app;
