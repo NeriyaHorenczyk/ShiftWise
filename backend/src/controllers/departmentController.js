@@ -73,14 +73,11 @@ export const updateDepartment = async (req, res) => {
     const { id } = req.params;
     const { name, lead_id } = req.body;
 
-    const [departments] = await pool.query(
-      'SELECT id FROM departments WHERE id = ?',
-      [id]
-    );
+    const [departments] = await pool.query('SELECT id FROM departments WHERE id = ?', [id]);
     if (departments.length === 0)
       return res.status(404).json({ error: 'Department not found.' });
 
-    if (name) {
+    if (name !== undefined && name.trim()) {
       const [existing] = await pool.query(
         'SELECT id FROM departments WHERE name = ? AND id != ?',
         [name.trim(), id]
@@ -90,23 +87,32 @@ export const updateDepartment = async (req, res) => {
     }
 
     if (lead_id) {
-      const [users] = await pool.query(
-        'SELECT id, role FROM users WHERE id = ?',
-        [lead_id]
-      );
+      const [users] = await pool.query('SELECT id, role FROM users WHERE id = ?', [lead_id]);
       if (users.length === 0)
         return res.status(404).json({ error: 'Lead user not found.' });
-      if (users[0].role !== 'lead' && users[0].role !== 'admin')
+      if (!['lead', 'admin'].includes(users[0].role))
         return res.status(400).json({ error: 'Assigned lead must have role lead or admin.' });
     }
 
-    await pool.query(
-      `UPDATE departments SET
-        name = COALESCE(?, name),
-        lead_id = COALESCE(?, lead_id)
-      WHERE id = ?`,
-      [name?.trim() || null, lead_id || null, id]
-    );
+    // Build SET clause dynamically so lead_id = null can actually clear the field
+    // (COALESCE would silently keep the old value when null is passed)
+    const setClauses = [];
+    const params = [];
+
+    if (name !== undefined) {
+      setClauses.push('name = ?');
+      params.push(name.trim());
+    }
+    if ('lead_id' in req.body) {
+      setClauses.push('lead_id = ?');
+      params.push(lead_id || null);
+    }
+
+    if (setClauses.length === 0)
+      return res.status(400).json({ error: 'No fields to update.' });
+
+    params.push(id);
+    await pool.query(`UPDATE departments SET ${setClauses.join(', ')} WHERE id = ?`, params);
 
     res.json({ message: 'Department updated successfully.' });
   } catch (err) {
