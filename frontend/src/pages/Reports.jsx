@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LuPrinter } from 'react-icons/lu';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import { toDateString } from '../utils/dateUtils';
@@ -315,6 +316,12 @@ const Reports = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, fromDate, toDate, selectedDept]);
 
+  const activeTabLabel = TABS.find(t => t.key === activeTab)?.label ?? '';
+  const deptLabel = isAdmin
+    ? (selectedDept ? departments.find(d => d.id === selectedDept)?.name ?? 'All Departments' : 'All Departments')
+    : 'Your Department';
+  const printDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
   return (
     <div className="page">
       <div className="page-header">
@@ -323,7 +330,20 @@ const Reports = () => {
             <h2>Reports</h2>
             <p className="page-subtitle">Shift coverage, leave history and employee stats</p>
           </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+            <LuPrinter size={16} />
+            Print / Save PDF
+          </button>
         </div>
+      </div>
+
+      <div className="print-header">
+        <div className="print-header-logo">ShiftWise</div>
+        <h1 className="print-header-title">{activeTabLabel} Report</h1>
+        <p className="print-header-meta">
+          {deptLabel}&nbsp;&nbsp;·&nbsp;&nbsp;{formatDate(fromDate)} – {formatDate(toDate)}
+        </p>
+        <p className="print-header-date">Generated {printDate}</p>
       </div>
 
       <div className="reports-controls">
