@@ -15,6 +15,7 @@ import Team from './pages/Team';
 import Reports from './pages/Reports';
 import AdminUsers from './pages/admin/Users';
 import AdminDepartments from './pages/admin/Departments';
+import Profile from './pages/Profile';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -76,6 +77,12 @@ const App = () => {
             <RoleRoute roles={['admin', 'lead']}>
               <Team />
             </RoleRoute>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <Profile />
           </ProtectedRoute>
         } />
 

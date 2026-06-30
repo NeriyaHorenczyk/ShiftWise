@@ -10,6 +10,7 @@ import {
   LuUsers,
   LuBuilding2,
   LuTrendingUp,
+  LuUser,
   LuSun,
   LuMoon,
   LuLogOut,
@@ -27,6 +28,7 @@ const navItems = [
   { to: '/availability', label: 'Availability', icon: LuClipboardList },
   { to: '/swaps', label: 'Swap Requests', icon: LuArrowLeftRight },
   { to: '/leave', label: 'Leave Requests', icon: LuFileText },
+  { to: '/profile', label: 'Profile', icon: LuUser },
 ];
 
 const leadAdminItems = [

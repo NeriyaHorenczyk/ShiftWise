@@ -63,6 +63,7 @@ export const api = {
   getUsers: () => request('/users'),
   getUserById: (id) => request(`/users/${id}`),
   updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  uploadAvatar: (id, formData) => request(`/users/${id}/avatar`, { method: 'POST', body: formData, isFormData: true }),
   updateUserRole: (id, data) => request(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
 

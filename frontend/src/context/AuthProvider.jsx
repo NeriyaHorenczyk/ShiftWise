@@ -21,6 +21,12 @@ export const AuthProvider = ({ children }) => {
     setToken(userToken);
   };
 
+  const updateUser = (fields) => {
+    const updated = { ...currentUser, ...fields };
+    localStorage.setItem('user', JSON.stringify(updated));
+    setCurrentUser(updated);
+  };
+
   const logout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
@@ -40,6 +46,7 @@ export const AuthProvider = ({ children }) => {
       token,
       login,
       logout,
+      updateUser,
       isAdmin,
       isLead,
       isShiftManager,
