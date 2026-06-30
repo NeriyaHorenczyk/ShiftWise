@@ -13,6 +13,8 @@ import Swaps from './pages/Swaps';
 import Leave from './pages/Leave';
 import Team from './pages/Team';
 import Reports from './pages/Reports';
+import AdminUsers from './pages/admin/Users';
+import AdminDepartments from './pages/admin/Departments';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -88,7 +90,15 @@ const App = () => {
         <Route path="/admin/users" element={
           <ProtectedRoute>
             <RoleRoute roles={['admin']}>
-              <div>Admin Users Page</div>
+              <AdminUsers />
+            </RoleRoute>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/admin/departments" element={
+          <ProtectedRoute>
+            <RoleRoute roles={['admin']}>
+              <AdminDepartments />
             </RoleRoute>
           </ProtectedRoute>
         } />
