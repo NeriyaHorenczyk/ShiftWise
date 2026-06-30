@@ -24,7 +24,18 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const imageFilter = (req, file, cb) => {
+  if (['image/jpeg', 'image/png'].includes(file.mimetype)) cb(null, true);
+  else cb(new Error('Only JPEG and PNG images are allowed.'), false);
+};
+
+export const uploadImage = multer({
+  storage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 export default upload;

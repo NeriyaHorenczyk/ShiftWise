@@ -138,6 +138,19 @@ export const updateUserRole = async (req, res) => {
   }
 };
 
+export const uploadAvatar = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file provided.' });
+
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    await pool.query('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.params.id]);
+
+    res.json({ message: 'Avatar updated.', avatar_url: avatarUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
