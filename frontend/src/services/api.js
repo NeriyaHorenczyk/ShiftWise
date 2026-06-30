@@ -111,6 +111,20 @@ export const api = {
 
   // Leave
   getLeave: () => request('/leave'),
+
+  // Reports
+  getShiftCoverage: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/reports/shifts?${query}`);
+  },
+  getEmployeeStats: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/reports/employees?${query}`);
+  },
+  getReportsLeave: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/reports/leave?${query}`);
+  },
   createLeave: (formData) => request('/leave', { method: 'POST', body: formData, isFormData: true }),
   reviewLeave: (id, data) => request(`/leave/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteLeave: (id) => request(`/leave/${id}`, { method: 'DELETE' }),

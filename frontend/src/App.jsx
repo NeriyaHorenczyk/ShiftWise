@@ -12,6 +12,7 @@ import Availability from './pages/Availability';
 import Swaps from './pages/Swaps';
 import Leave from './pages/Leave';
 import Team from './pages/Team';
+import Reports from './pages/Reports';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -72,6 +73,14 @@ const App = () => {
           <ProtectedRoute>
             <RoleRoute roles={['admin', 'lead']}>
               <Team />
+            </RoleRoute>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports" element={
+          <ProtectedRoute>
+            <RoleRoute roles={['admin', 'lead']}>
+              <Reports />
             </RoleRoute>
           </ProtectedRoute>
         } />
