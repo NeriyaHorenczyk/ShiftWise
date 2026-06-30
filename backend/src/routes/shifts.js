@@ -17,20 +17,18 @@ const router = Router();
 
 router.route('/')
   .get(getAllShifts)
-  // TODO: remove 'admin' from shift management routes when done testing
-  .post(requireRole('admin', 'lead'), createShift);
+  .post(requireRole('lead'), createShift);
 
 router.get('/my', getMyShifts);
 
 router.route('/:id')
   .get(getShiftById)
-  .put(requireRole('admin', 'lead'), updateShift)
-  .delete(requireRole('admin', 'lead'), deleteShift);
+  .put(requireRole('lead'), updateShift)
+  .delete(requireRole('lead'), deleteShift);
 
-
-router.post('/:id/publish', requireRole('admin', 'lead'), publishShift);
-router.post('/:id/unpublish', requireRole('admin', 'lead'), unpublishShift);
-router.post('/:id/assign', requireRole('admin', 'lead'), assignEmployee);
-router.delete('/:id/assign/:userId', requireRole('admin', 'lead'), unassignEmployee);
+router.post('/:id/publish', requireRole('lead'), publishShift);
+router.post('/:id/unpublish', requireRole('lead'), unpublishShift);
+router.post('/:id/assign', requireRole('lead'), assignEmployee);
+router.delete('/:id/assign/:userId', requireRole('lead'), unassignEmployee);
 
 export default router;

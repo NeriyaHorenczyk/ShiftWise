@@ -22,8 +22,7 @@ import ConfirmModal from '../components/ConfirmModal';
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
 
-  // TODO: change to isLead only when done testing
-  const canEdit = isAdmin || isLead;
+  const canEdit = isLead;
 
   const [weekStart, setWeekStart] = useState(getWeekStart());
   const [departments, setDepartments] = useState([]);
