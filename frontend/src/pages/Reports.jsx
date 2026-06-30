@@ -293,10 +293,9 @@ const Reports = () => {
     const params = { from: fromDate, to: toDate };
     if (isAdmin && selectedDept) params.department_id = selectedDept;
 
-    setLoading(true);
-    setError('');
-
     const load = async () => {
+      setLoading(true);
+      setError('');
       try {
         if (activeTab === 'coverage') {
           setShiftData(await api.getShiftCoverage(params));
