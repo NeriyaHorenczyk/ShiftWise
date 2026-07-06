@@ -36,8 +36,11 @@ const Schedule = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState('');
 
   const weekDays = getWeekDays(weekStart);
 
@@ -156,6 +159,54 @@ const Schedule = () => {
     }
   };
 
+  const refreshShifts = async () => {
+    const data = await api.getShifts({
+      department_id: selectedDept,
+      week_start: toDateString(weekStart),
+    });
+    setShifts(data);
+  };
+
+  const handleBulkClear = async () => {
+    setBulkLoading(true);
+    setBulkMessage('');
+    try {
+      const { deleted } = await api.bulkClearShifts({
+        department_id: selectedDept,
+        week_start: toDateString(weekStart),
+      });
+      await refreshShifts();
+      setBulkMessage(`Cleared ${deleted} draft shift${deleted !== 1 ? 's' : ''}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkLoading(false);
+      setShowClearConfirm(false);
+    }
+  };
+
+  const handleBulkPublish = async () => {
+    setBulkLoading(true);
+    setBulkMessage('');
+    try {
+      const { published, skipped } = await api.bulkPublishShifts({
+        department_id: selectedDept,
+        week_start: toDateString(weekStart),
+      });
+      await refreshShifts();
+      const msg = skipped > 0
+        ? `Published ${published} shift${published !== 1 ? 's' : ''}. ${skipped} skipped (no staff assigned).`
+        : `Published ${published} shift${published !== 1 ? 's' : ''}.`;
+      setBulkMessage(msg);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const draftCount = shifts.filter(s => s.status === 'draft').length;
+
   return (
     <div className="page">
       <div className="page-header">
@@ -190,7 +241,30 @@ const Schedule = () => {
             ))}
           </select>
         )}
+
+        {canEdit && selectedDept && draftCount > 0 && (
+          <div className="bulk-actions">
+            <button
+              className="btn btn-danger-outline"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={bulkLoading}
+            >
+              Clear Drafts ({draftCount})
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleBulkPublish}
+              disabled={bulkLoading}
+            >
+              Publish All
+            </button>
+          </div>
+        )}
       </div>
+
+      {bulkMessage && (
+        <div className="success-message" style={{ marginBottom: '1rem' }}>{bulkMessage}</div>
+      )}
 
       {error && <div className="page-error">{error}</div>}
 
@@ -301,6 +375,17 @@ const Schedule = () => {
           danger={true}
           onConfirm={handleDelete}
           onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
+
+      {showClearConfirm && (
+        <ConfirmModal
+          title="Clear draft shifts"
+          message={`Delete all ${draftCount} draft shift${draftCount !== 1 ? 's' : ''} for this week? Published shifts are not affected. This cannot be undone.`}
+          confirmLabel="Clear drafts"
+          danger={true}
+          onConfirm={handleBulkClear}
+          onCancel={() => setShowClearConfirm(false)}
         />
       )}
     </div>

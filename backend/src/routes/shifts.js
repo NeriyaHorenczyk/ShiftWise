@@ -10,7 +10,9 @@ import {
   publishShift,
   unpublishShift,
   assignEmployee,
-  unassignEmployee
+  unassignEmployee,
+  bulkClear,
+  bulkPublish,
 } from '../controllers/shiftController.js';
 
 const router = Router();
@@ -20,6 +22,8 @@ router.route('/')
   .post(requireRole('lead'), createShift);
 
 router.get('/my', getMyShifts);
+router.post('/bulk/clear', requireRole('lead'), bulkClear);
+router.post('/bulk/publish', requireRole('lead'), bulkPublish);
 
 router.route('/:id')
   .get(getShiftById)

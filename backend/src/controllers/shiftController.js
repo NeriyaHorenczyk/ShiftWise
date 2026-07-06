@@ -293,6 +293,71 @@ export const assignEmployee = async (req, res) => {
   }
 };
 
+export const bulkClear = async (req, res) => {
+  try {
+    const { department_id, week_start } = req.body;
+    if (!department_id || !week_start) {
+      return res.status(400).json({ error: 'department_id and week_start are required.' });
+    }
+
+    const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+    if (!user || user.department_id !== department_id) {
+      return res.status(403).json({ error: 'You do not manage this department.' });
+    }
+
+    const [result] = await pool.query(
+      `DELETE FROM shifts
+       WHERE department_id = ?
+         AND status = 'draft'
+         AND DATE(start_time) >= ?
+         AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+      [department_id, week_start, week_start]
+    );
+
+    res.json({ deleted: result.affectedRows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const bulkPublish = async (req, res) => {
+  try {
+    const { department_id, week_start } = req.body;
+    if (!department_id || !week_start) {
+      return res.status(400).json({ error: 'department_id and week_start are required.' });
+    }
+
+    const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+    if (!user || user.department_id !== department_id) {
+      return res.status(403).json({ error: 'You do not manage this department.' });
+    }
+
+    const [result] = await pool.query(
+      `UPDATE shifts s
+       SET s.status = 'published'
+       WHERE s.department_id = ?
+         AND s.status = 'draft'
+         AND DATE(s.start_time) >= ?
+         AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+         AND EXISTS (SELECT 1 FROM shift_assignments sa WHERE sa.shift_id = s.id)`,
+      [department_id, week_start, week_start]
+    );
+
+    const [[{ skipped }]] = await pool.query(
+      `SELECT COUNT(*) AS skipped FROM shifts
+       WHERE department_id = ?
+         AND status = 'draft'
+         AND DATE(start_time) >= ?
+         AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+      [department_id, week_start, week_start]
+    );
+
+    res.json({ published: result.affectedRows, skipped: Number(skipped) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const unassignEmployee = async (req, res) => {
   try {
     const { id, userId } = req.params;

@@ -738,6 +738,24 @@ button[type='submit']:disabled {
 
 .btn-danger:hover { opacity: 0.85; }
 
+.btn-danger-outline {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+.btn-danger-outline:hover {
+  background: var(--error);
+  color: #ffffff;
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 .user-info {
   display: flex;
   flex-direction: row;
