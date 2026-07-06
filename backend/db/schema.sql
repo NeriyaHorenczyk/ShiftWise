@@ -93,3 +93,56 @@ CREATE TABLE leave_requests (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+CREATE TABLE shift_blueprints (
+  id CHAR(36) PRIMARY KEY,
+  department_id CHAR(36) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL DEFAULT 'Standard Week',
+  created_by CHAR(36),
+  created_at DATETIME DEFAULT NOW(),
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE blueprint_shifts (
+  id CHAR(36) PRIMARY KEY,
+  blueprint_id CHAR(36) NOT NULL,
+  day_of_week TINYINT NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  required_staff INT NOT NULL DEFAULT 1,
+  needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (blueprint_id) REFERENCES shift_blueprints(id) ON DELETE CASCADE
+);
+
+CREATE TABLE blueprint_overrides (
+  id CHAR(36) PRIMARY KEY,
+  blueprint_id CHAR(36) NOT NULL,
+  override_date DATE NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  UNIQUE (blueprint_id, override_date),
+  FOREIGN KEY (blueprint_id) REFERENCES shift_blueprints(id) ON DELETE CASCADE
+);
+
+CREATE TABLE blueprint_override_shifts (
+  id CHAR(36) PRIMARY KEY,
+  override_id CHAR(36) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  required_staff INT NOT NULL DEFAULT 1,
+  needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (override_id) REFERENCES blueprint_overrides(id) ON DELETE CASCADE
+);
+
+CREATE TABLE blueprint_presets (
+  id CHAR(36) PRIMARY KEY,
+  blueprint_id CHAR(36) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  required_staff INT NOT NULL DEFAULT 1,
+  needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (blueprint_id) REFERENCES shift_blueprints(id) ON DELETE CASCADE
+);

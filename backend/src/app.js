@@ -13,6 +13,7 @@ import availabilityRouter from './routes/availability.js';
 import swapsRouter from './routes/swaps.js';
 import leaveRouter from './routes/leave.js';
 import reportsRouter from './routes/reports.js';
+import blueprintRouter from './routes/blueprint.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,5 +39,6 @@ app.use('/availability', availabilityRouter);
 app.use('/swaps', swapsRouter);
 app.use('/leave', leaveRouter);
 app.use('/reports', reportsRouter);
+app.use('/blueprints', blueprintRouter);
 
 export default app;
