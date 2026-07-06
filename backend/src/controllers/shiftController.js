@@ -293,6 +293,169 @@ export const assignEmployee = async (req, res) => {
   }
 };
 
+const getSlot = (hour) => {
+  if (hour >= 7 && hour < 15) return 'morning';
+  if (hour >= 15 && hour < 23) return 'afternoon';
+  return 'evening'; // 23:00–07:00
+};
+
+const overlaps = (busyList, start, end) =>
+  busyList.some(b => b.start < end && b.end > start);
+
+export const autoAssign = async (req, res) => {
+  try {
+    const { department_id, week_start } = req.body;
+    if (!department_id || !week_start) {
+      return res.status(400).json({ error: 'department_id and week_start are required.' });
+    }
+
+    const [[lead]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+    if (!lead || lead.department_id !== department_id) {
+      return res.status(403).json({ error: 'You do not manage this department.' });
+    }
+
+    // 1. Draft shifts that still need more staff
+    const [shifts] = await pool.query(
+      `SELECT s.id, s.start_time, s.end_time, s.required_staff,
+              COUNT(sa.id) AS assigned_count,
+              COALESCE(SUM(sa.is_shift_manager), 0) AS sm_count
+       FROM shifts s
+       LEFT JOIN shift_assignments sa ON sa.shift_id = s.id
+       WHERE s.department_id = ?
+         AND s.status = 'draft'
+         AND DATE(s.start_time) >= ?
+         AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+       GROUP BY s.id
+       HAVING assigned_count < s.required_staff
+       ORDER BY s.start_time`,
+      [department_id, week_start, week_start]
+    );
+
+    if (shifts.length === 0) {
+      return res.json({ assigned: 0, message: 'All draft shifts are already fully staffed.' });
+    }
+
+    // 2. Employees in the department
+    const [employees] = await pool.query(
+      `SELECT id, role FROM users
+       WHERE department_id = ? AND role IN ('employee', 'shift_manager')`,
+      [department_id]
+    );
+
+    if (employees.length === 0) {
+      return res.json({ assigned: 0, message: 'No employees in this department.' });
+    }
+
+    const employeeIds = employees.map(e => e.id);
+
+    // 3. Availability for the week
+    const [availability] = await pool.query(
+      `SELECT user_id, day_of_week, slot, status
+       FROM availability
+       WHERE week_start = ? AND user_id IN (?)`,
+      [week_start, employeeIds]
+    );
+
+    // availMap: `${userId}_${dayOfWeek}_${slot}` -> score  (preferred=3, available=2)
+    const availMap = {};
+    for (const a of availability) {
+      availMap[`${a.user_id}_${a.day_of_week}_${a.slot}`] = a.status === 'preferred' ? 3 : 2;
+    }
+
+    // 4. All shifts this week to detect overlaps with already-assigned shifts
+    const [allWeekShifts] = await pool.query(
+      `SELECT id, start_time, end_time FROM shifts
+       WHERE department_id = ?
+         AND DATE(start_time) >= ?
+         AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+      [department_id, week_start, week_start]
+    );
+
+    // busyMap: userId -> [{start, end}]
+    const busyMap = {};
+    for (const e of employees) busyMap[e.id] = [];
+
+    if (allWeekShifts.length > 0) {
+      const allIds = allWeekShifts.map(s => s.id);
+      const [existing] = await pool.query(
+        `SELECT sa.user_id, s.start_time, s.end_time
+         FROM shift_assignments sa
+         JOIN shifts s ON sa.shift_id = s.id
+         WHERE sa.shift_id IN (?)`,
+        [allIds]
+      );
+      for (const a of existing) {
+        if (busyMap[a.user_id]) {
+          busyMap[a.user_id].push({ start: new Date(a.start_time), end: new Date(a.end_time) });
+        }
+      }
+    }
+
+    const empRole = {};
+    const workload = {}; // tracks total shifts assigned this week per employee
+    for (const e of employees) {
+      empRole[e.id] = e.role;
+      workload[e.id] = busyMap[e.id].length; // pre-load with existing assignments
+    }
+
+    // Sort: shifts with no SM first, then by most open slots remaining
+    const sortedShifts = [...shifts].sort((a, b) => {
+      const aNeedsSm = Number(a.sm_count) === 0 ? 1 : 0;
+      const bNeedsSm = Number(b.sm_count) === 0 ? 1 : 0;
+      if (bNeedsSm !== aNeedsSm) return bNeedsSm - aNeedsSm;
+      return (b.required_staff - Number(b.assigned_count)) - (a.required_staff - Number(a.assigned_count));
+    });
+
+    const newAssignments = [];
+
+    for (const shift of sortedShifts) {
+      const shiftStart = new Date(shift.start_time);
+      const shiftEnd = new Date(shift.end_time);
+      const dayOfWeek = shiftStart.getDay();
+      const slot = getSlot(shiftStart.getHours());
+
+      let openSlots = shift.required_staff - Number(shift.assigned_count);
+      let hasSmAssigned = Number(shift.sm_count) > 0;
+
+      const candidates = employees
+        .filter(e => !overlaps(busyMap[e.id] || [], shiftStart, shiftEnd))
+        .map(e => {
+          const base = availMap[`${e.id}_${dayOfWeek}_${slot}`] || 0;
+          const smBonus = !hasSmAssigned && empRole[e.id] === 'shift_manager' ? 0.5 : 0;
+          return { id: e.id, score: base + smBonus, workload: workload[e.id] || 0 };
+        })
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.workload - b.workload; // tiebreak: fewest shifts this week first
+        });
+
+      for (const candidate of candidates) {
+        if (openSlots <= 0) break;
+
+        const assignAsSm = !hasSmAssigned && empRole[candidate.id] === 'shift_manager' ? 1 : 0;
+        newAssignments.push([uuidv4(), shift.id, candidate.id, assignAsSm]);
+        busyMap[candidate.id].push({ start: shiftStart, end: shiftEnd });
+        workload[candidate.id] = (workload[candidate.id] || 0) + 1;
+        if (assignAsSm) hasSmAssigned = true;
+        openSlots--;
+      }
+    }
+
+    if (newAssignments.length === 0) {
+      return res.json({ assigned: 0, message: 'No employees are available for the remaining slots.' });
+    }
+
+    await pool.query(
+      'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES ?',
+      [newAssignments]
+    );
+
+    res.json({ assigned: newAssignments.length, noAvailability: availability.length === 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const bulkClear = async (req, res) => {
   try {
     const { department_id, week_start } = req.body;

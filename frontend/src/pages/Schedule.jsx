@@ -185,6 +185,29 @@ const Schedule = () => {
     }
   };
 
+  const handleAutoAssign = async () => {
+    setBulkLoading(true);
+    setBulkMessage('');
+    try {
+      const result = await api.autoAssignShifts({
+        department_id: selectedDept,
+        week_start: toDateString(weekStart),
+      });
+      await refreshShifts();
+      if (result.assigned > 0) {
+        const base = `Auto-assigned ${result.assigned} employee slot${result.assigned !== 1 ? 's' : ''} across draft shifts.`;
+        const warn = result.noAvailability ? ' No availability was submitted — employees were distributed evenly.' : '';
+        setBulkMessage(base + warn);
+      } else {
+        setBulkMessage(result.message);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const handleBulkPublish = async () => {
     setBulkLoading(true);
     setBulkMessage('');
@@ -245,11 +268,12 @@ const Schedule = () => {
         {canEdit && selectedDept && draftCount > 0 && (
           <div className="bulk-actions">
             <button
-              className="btn btn-danger-outline"
-              onClick={() => setShowClearConfirm(true)}
+              className="btn btn-secondary"
+              onClick={handleAutoAssign}
               disabled={bulkLoading}
+              title="Auto-assign employees to unfilled draft shifts based on their availability"
             >
-              Clear Drafts ({draftCount})
+              Auto-assign
             </button>
             <button
               className="btn btn-primary"
@@ -257,6 +281,13 @@ const Schedule = () => {
               disabled={bulkLoading}
             >
               Publish All
+            </button>
+            <button
+              className="btn btn-danger-outline"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={bulkLoading}
+            >
+              Clear Drafts ({draftCount})
             </button>
           </div>
         )}

@@ -91,6 +91,7 @@ export const api = {
   unpublishShift: (id) => request(`/shifts/${id}/unpublish`, { method: 'POST' }),
   bulkClearShifts: (data) => request('/shifts/bulk/clear', { method: 'POST', body: JSON.stringify(data) }),
   bulkPublishShifts: (data) => request('/shifts/bulk/publish', { method: 'POST', body: JSON.stringify(data) }),
+  autoAssignShifts: (data) => request('/shifts/auto-assign', { method: 'POST', body: JSON.stringify(data) }),
   assignEmployee: (id, data) => request(`/shifts/${id}/assign`, { method: 'POST', body: JSON.stringify(data) }),
   unassignEmployee: (shiftId, userId) => request(`/shifts/${shiftId}/assign/${userId}`, { method: 'DELETE' }),
 
