@@ -10,6 +10,7 @@ import {
   LuUsers,
   LuBuilding2,
   LuTrendingUp,
+  LuCopy,
   LuUser,
   LuSun,
   LuMoon,
@@ -34,6 +35,10 @@ const navItems = [
 const leadAdminItems = [
   { to: '/team', label: 'Team', icon: LuUsers },
   { to: '/reports', label: 'Reports', icon: LuTrendingUp },
+];
+
+const leadOnlyItems = [
+  { to: '/blueprint', label: 'Blueprint', icon: LuCopy },
 ];
 
 const adminItems = [
@@ -76,6 +81,23 @@ const Layout = ({ children }) => {
               {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
+
+          {isLead && (
+            <div className="nav-section">
+              {!collapsed && <span className="nav-section-label">Lead Tools</span>}
+              {leadOnlyItems.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                  title={collapsed ? label : undefined}
+                >
+                  <Icon size={18} className="nav-icon" />
+                  {!collapsed && <span>{label}</span>}
+                </NavLink>
+              ))}
+            </div>
+          )}
 
           {(isAdmin || isLead) && (
             <div className="nav-section">

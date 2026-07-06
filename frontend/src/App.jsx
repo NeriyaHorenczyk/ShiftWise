@@ -16,6 +16,7 @@ import Reports from './pages/Reports';
 import AdminUsers from './pages/admin/Users';
 import AdminDepartments from './pages/admin/Departments';
 import Profile from './pages/Profile';
+import Blueprint from './pages/Blueprint';
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useAuth();
@@ -83,6 +84,14 @@ const App = () => {
         <Route path="/profile" element={
           <ProtectedRoute>
             <Profile />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/blueprint" element={
+          <ProtectedRoute>
+            <RoleRoute roles={['lead']}>
+              <Blueprint />
+            </RoleRoute>
           </ProtectedRoute>
         } />
 

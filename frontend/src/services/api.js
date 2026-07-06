@@ -113,6 +113,20 @@ export const api = {
   // Leave
   getLeave: () => request('/leave'),
 
+  // Blueprints
+  getBlueprint: () => request('/blueprints'),
+  createBlueprint: (data) => request('/blueprints', { method: 'POST', body: JSON.stringify(data) }),
+  updateBlueprint: (id, data) => request(`/blueprints/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  addBlueprintShift: (id, data) => request(`/blueprints/${id}/shifts`, { method: 'POST', body: JSON.stringify(data) }),
+  removeBlueprintShift: (id, slotId) => request(`/blueprints/${id}/shifts/${slotId}`, { method: 'DELETE' }),
+  addBlueprintOverride: (id, data) => request(`/blueprints/${id}/overrides`, { method: 'POST', body: JSON.stringify(data) }),
+  removeBlueprintOverride: (id, ovId) => request(`/blueprints/${id}/overrides/${ovId}`, { method: 'DELETE' }),
+  addBlueprintOverrideShift: (id, ovId, data) => request(`/blueprints/${id}/overrides/${ovId}/shifts`, { method: 'POST', body: JSON.stringify(data) }),
+  removeBlueprintOverrideShift: (id, ovId, shiftId) => request(`/blueprints/${id}/overrides/${ovId}/shifts/${shiftId}`, { method: 'DELETE' }),
+  addBlueprintPreset: (id, data) => request(`/blueprints/${id}/presets`, { method: 'POST', body: JSON.stringify(data) }),
+  removeBlueprintPreset: (id, presetId) => request(`/blueprints/${id}/presets/${presetId}`, { method: 'DELETE' }),
+  generateBlueprint: (id, data) => request(`/blueprints/${id}/generate`, { method: 'POST', body: JSON.stringify(data) }),
+
   // Reports
   getShiftCoverage: (params = {}) => {
     const query = new URLSearchParams(params).toString();
