@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
+import { sendEmail, swapApprovedEmail } from '../utils/email.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -194,6 +195,25 @@ export const approveSwap = async (req, res) => {
       'UPDATE swap_requests SET status = ?, lead_comment = ? WHERE id = ?',
       [newStatus, lead_comment || null, id]
     );
+
+    if (action === 'approve') {
+      const [[shiftInfo]] = await pool.query(
+        'SELECT title, start_time, end_time FROM shifts WHERE id = ?',
+        [swap.shift_id]
+      );
+      const [[requester]] = await pool.query(
+        'SELECT email, name FROM users WHERE id = ?',
+        [swap.requester_id]
+      );
+      const [[target]] = await pool.query(
+        'SELECT email, name FROM users WHERE id = ?',
+        [swap.target_id]
+      );
+      await Promise.all([
+        sendEmail(requester.email, `Swap approved — ${shiftInfo.title}`, swapApprovedEmail(requester.name, true, shiftInfo, target.name)),
+        sendEmail(target.email, `Swap approved — ${shiftInfo.title}`, swapApprovedEmail(target.name, false, shiftInfo, requester.name)),
+      ]);
+    }
 
     res.json({ message: `Swap request ${newStatus}.` });
   } catch (err) {

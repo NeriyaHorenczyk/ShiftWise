@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
+import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail } from '../utils/email.js';
 
 export const getAllShifts = async (req, res) => {
   try {
@@ -227,6 +228,16 @@ export const publishShift = async (req, res) => {
       ['published', id]
     );
 
+    // email assigned employees
+    const [employees] = await pool.query(
+      `SELECT u.email, u.name FROM shift_assignments sa
+       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ?`,
+      [id]
+    );
+    await Promise.all(employees.map((emp) =>
+      sendEmail(emp.email, `Shift published — ${shifts[0].title}`, shiftPublishedEmail(emp.name, shifts[0]))
+    ));
+
     res.json({ message: 'Shift published successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -242,7 +253,19 @@ export const unpublishShift = async (req, res) => {
     if (shifts[0].status === 'draft')
       return res.status(400).json({ error: 'Shift is already a draft.' });
 
+    // email assigned employees before status changes (shifts[0] still has the data)
+    const [employees] = await pool.query(
+      `SELECT u.email, u.name FROM shift_assignments sa
+       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ?`,
+      [id]
+    );
+
     await pool.query('UPDATE shifts SET status = ? WHERE id = ?', ['draft', id]);
+
+    await Promise.all(employees.map((emp) =>
+      sendEmail(emp.email, `Shift update — ${shifts[0].title}`, shiftUnpublishedEmail(emp.name, shifts[0]))
+    ));
+
     res.json({ message: 'Shift unpublished successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -514,6 +537,34 @@ export const bulkPublish = async (req, res) => {
          AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
       [department_id, week_start, week_start]
     );
+
+    // email each employee once listing all their shifts for the week
+    if (result.affectedRows > 0) {
+      const [rows] = await pool.query(
+        `SELECT s.title, s.start_time, s.end_time,
+                u.id AS user_id, u.email, u.name AS user_name
+         FROM shifts s
+         JOIN shift_assignments sa ON sa.shift_id = s.id
+         JOIN users u ON u.id = sa.user_id
+         WHERE s.department_id = ?
+           AND s.status = 'published'
+           AND DATE(s.start_time) >= ?
+           AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+         ORDER BY s.start_time`,
+        [department_id, week_start, week_start]
+      );
+      // group shifts by employee
+      const byEmployee = {};
+      for (const r of rows) {
+        if (!byEmployee[r.user_id]) {
+          byEmployee[r.user_id] = { email: r.email, name: r.user_name, shifts: [] };
+        }
+        byEmployee[r.user_id].shifts.push({ title: r.title, start_time: r.start_time, end_time: r.end_time });
+      }
+      await Promise.all(Object.values(byEmployee).map((emp) =>
+        sendEmail(emp.email, 'Your schedule has been published', weekPublishedEmail(emp.name, emp.shifts))
+      ));
+    }
 
     res.json({ published: result.affectedRows, skipped: Number(skipped) });
   } catch (err) {
