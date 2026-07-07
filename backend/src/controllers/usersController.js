@@ -29,8 +29,7 @@ export const getAllUsers = async (req, res) => {
       params.push(req.user.id);
     } else {
       query = `
-        SELECT username, name, role,
-          department_id, avatar_url
+        SELECT username, role
         FROM users
         WHERE department_id = (
           SELECT department_id FROM users WHERE id = ?

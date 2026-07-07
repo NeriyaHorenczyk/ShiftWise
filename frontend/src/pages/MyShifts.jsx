@@ -126,7 +126,7 @@ const MyShifts = () => {
 const MyShiftCard = ({ shift, currentUser }) => {
   const [showSwapForm, setShowSwapForm] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [targetId, setTargetId] = useState('');
+  const [targetUsername, setTargetUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -135,7 +135,13 @@ const MyShiftCard = ({ shift, currentUser }) => {
     if (!showSwapForm) {
       try {
         const users = await api.getUsers();
-        setTeamMembers(users.filter(u => u.username !== currentUser.username));
+        const colleagues = users.filter(u => u.username !== currentUser.username);
+        // SM-flagged shifts can only swap with other shift_managers
+        setTeamMembers(
+          shift.is_shift_manager === 1
+            ? colleagues.filter(u => u.role === 'shift_manager')
+            : colleagues
+        );
       } catch (err) {
         setError(err.message);
       }
@@ -144,11 +150,11 @@ const MyShiftCard = ({ shift, currentUser }) => {
   };
 
   const handleSwapRequest = async () => {
-    if (!targetId) return;
+    if (!targetUsername) return;
     setLoading(true);
     setError('');
     try {
-      await api.createSwap({ shift_id: shift.id, target_id: targetId });
+      await api.createSwap({ shift_id: shift.id, target_username: targetUsername });
       setSuccess('Swap request sent successfully.');
       setShowSwapForm(false);
     } catch (err) {
@@ -187,18 +193,18 @@ const MyShiftCard = ({ shift, currentUser }) => {
         <div className="swap-form">
           <select
             className="dept-select"
-            value={targetId}
-            onChange={e => setTargetId(e.target.value)}
+            value={targetUsername}
+            onChange={e => setTargetUsername(e.target.value)}
           >
             <option value="">Select colleague...</option>
             {teamMembers.map(u => (
-              <option key={u.username} value={u.id}>{u.name}</option>
+              <option key={u.username} value={u.username}>{u.username}</option>
             ))}
           </select>
           <button
             className="btn btn-primary btn-sm"
             onClick={handleSwapRequest}
-            disabled={!targetId || loading}
+            disabled={!targetUsername || loading}
           >
             {loading ? 'Sending...' : 'Send'}
           </button>

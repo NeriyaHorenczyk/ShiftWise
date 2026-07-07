@@ -19,7 +19,7 @@ const handleAvatarUpload = (req, res, next) => {
   });
 };
 
-router.get('/', requireRole('admin', 'lead'), getAllUsers);
+router.get('/', getAllUsers);
 router.route('/:id')
   .get(getUserById)
   .put(requireSelfOrAdmin, updateUser)

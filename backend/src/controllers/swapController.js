@@ -54,12 +54,12 @@ export const getSwaps = async (req, res) => {
 
 export const createSwap = async (req, res) => {
   try {
-    const { target_id, shift_id } = req.body;
+    const { target_username, shift_id } = req.body;
 
-    if (!target_id || !shift_id)
-      return res.status(400).json({ error: 'target_id and shift_id are required.' });
+    if (!target_username || !shift_id)
+      return res.status(400).json({ error: 'target_username and shift_id are required.' });
 
-    if (target_id === req.user.id)
+    if (target_username === req.user.username)
       return res.status(400).json({ error: 'You cannot request a swap with yourself.' });
 
     // verify the shift exists and is published
@@ -80,10 +80,10 @@ export const createSwap = async (req, res) => {
     if (assignment.length === 0)
       return res.status(403).json({ error: 'You are not assigned to this shift.' });
 
-    // verify target exists and is in the same department
+    // resolve target_username to a user record
     const [targets] = await pool.query(
-      'SELECT * FROM users WHERE id = ?',
-      [target_id]
+      'SELECT * FROM users WHERE username = ?',
+      [target_username]
     );
     if (targets.length === 0)
       return res.status(404).json({ error: 'Target user not found.' });
@@ -113,7 +113,7 @@ export const createSwap = async (req, res) => {
     await pool.query(
       `INSERT INTO swap_requests (id, requester_id, target_id, shift_id)
        VALUES (?, ?, ?, ?)`,
-      [id, req.user.id, target_id, shift_id]
+      [id, req.user.id, targets[0].id, shift_id]
     );
 
     res.status(201).json({ message: 'Swap request created successfully.', id });
