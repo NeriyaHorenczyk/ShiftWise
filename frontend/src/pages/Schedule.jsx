@@ -37,6 +37,7 @@ const Schedule = () => {
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showUnpublishAllConfirm, setShowUnpublishAllConfirm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -228,7 +229,26 @@ const Schedule = () => {
     }
   };
 
+  const handleBulkUnpublish = async () => {
+    setBulkLoading(true);
+    setBulkMessage('');
+    try {
+      const { unpublished } = await api.bulkUnpublishShifts({
+        department_id: selectedDept,
+        week_start: toDateString(weekStart),
+      });
+      await refreshShifts();
+      setBulkMessage(`Unpublished ${unpublished} shift${unpublished !== 1 ? 's' : ''}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkLoading(false);
+      setShowUnpublishAllConfirm(false);
+    }
+  };
+
   const draftCount = shifts.filter(s => s.status === 'draft').length;
+  const publishedCount = shifts.filter(s => s.status === 'published').length;
 
   return (
     <div className="page">
@@ -265,30 +285,43 @@ const Schedule = () => {
           </select>
         )}
 
-        {canEdit && selectedDept && draftCount > 0 && (
+        {canEdit && selectedDept && (draftCount > 0 || publishedCount > 0) && (
           <div className="bulk-actions">
-            <button
-              className="btn btn-secondary"
-              onClick={handleAutoAssign}
-              disabled={bulkLoading}
-              title="Auto-assign employees to unfilled draft shifts based on their availability"
-            >
-              Auto-assign
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleBulkPublish}
-              disabled={bulkLoading}
-            >
-              Publish All
-            </button>
-            <button
-              className="btn btn-danger-outline"
-              onClick={() => setShowClearConfirm(true)}
-              disabled={bulkLoading}
-            >
-              Clear Drafts ({draftCount})
-            </button>
+            {draftCount > 0 && (
+              <>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleAutoAssign}
+                  disabled={bulkLoading}
+                  title="Auto-assign employees to unfilled draft shifts based on their availability"
+                >
+                  Auto-assign
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBulkPublish}
+                  disabled={bulkLoading}
+                >
+                  Publish All
+                </button>
+                <button
+                  className="btn btn-danger-outline"
+                  onClick={() => setShowClearConfirm(true)}
+                  disabled={bulkLoading}
+                >
+                  Clear Drafts ({draftCount})
+                </button>
+              </>
+            )}
+            {publishedCount > 0 && (
+              <button
+                className="btn btn-danger-outline"
+                onClick={() => setShowUnpublishAllConfirm(true)}
+                disabled={bulkLoading}
+              >
+                Unpublish All ({publishedCount})
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -417,6 +450,17 @@ const Schedule = () => {
           danger={true}
           onConfirm={handleBulkClear}
           onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
+
+      {showUnpublishAllConfirm && (
+        <ConfirmModal
+          title="Unpublish all shifts"
+          message={`Move all ${publishedCount} published shift${publishedCount !== 1 ? 's' : ''} back to draft? Assigned employees will be notified.`}
+          confirmLabel="Unpublish all"
+          danger={true}
+          onConfirm={handleBulkUnpublish}
+          onCancel={() => setShowUnpublishAllConfirm(false)}
         />
       )}
     </div>

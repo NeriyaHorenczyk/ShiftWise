@@ -1,6 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
-import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail } from '../utils/email.js';
+import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail, weekUnpublishedEmail } from '../utils/email.js';
 
 export const getAllShifts = async (req, res) => {
   try {
@@ -567,6 +567,61 @@ export const bulkPublish = async (req, res) => {
     }
 
     res.json({ published: result.affectedRows, skipped: Number(skipped) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const bulkUnpublish = async (req, res) => {
+  try {
+    const { department_id, week_start } = req.body;
+    if (!department_id || !week_start) {
+      return res.status(400).json({ error: 'department_id and week_start are required.' });
+    }
+
+    const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+    if (!user || user.department_id !== department_id) {
+      return res.status(403).json({ error: 'You do not manage this department.' });
+    }
+
+    // collect affected employees BEFORE updating
+    const [rows] = await pool.query(
+      `SELECT s.title, s.start_time, s.end_time,
+              u.id AS user_id, u.email, u.name AS user_name
+       FROM shifts s
+       JOIN shift_assignments sa ON sa.shift_id = s.id
+       JOIN users u ON u.id = sa.user_id
+       WHERE s.department_id = ?
+         AND s.status = 'published'
+         AND DATE(s.start_time) >= ?
+         AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+       ORDER BY s.start_time`,
+      [department_id, week_start, week_start]
+    );
+
+    const [result] = await pool.query(
+      `UPDATE shifts SET status = 'draft'
+       WHERE department_id = ?
+         AND status = 'published'
+         AND DATE(start_time) >= ?
+         AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+      [department_id, week_start, week_start]
+    );
+
+    if (result.affectedRows > 0 && rows.length > 0) {
+      const byEmployee = {};
+      for (const r of rows) {
+        if (!byEmployee[r.user_id]) {
+          byEmployee[r.user_id] = { email: r.email, name: r.user_name, shifts: [] };
+        }
+        byEmployee[r.user_id].shifts.push({ title: r.title, start_time: r.start_time, end_time: r.end_time });
+      }
+      await Promise.all(Object.values(byEmployee).map((emp) =>
+        sendEmail(emp.email, 'Schedule update — shifts taken offline', weekUnpublishedEmail(emp.name, emp.shifts))
+      ));
+    }
+
+    res.json({ unpublished: result.affectedRows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -78,6 +78,12 @@ export const shiftUnpublishedEmail = (name, shift) =>
         ${tableOpen}${shiftRow(shift, '#fef9c3')}${tableClose}
         <p>Your lead will publish the updated schedule once edits are complete.</p>`);
 
+export const weekUnpublishedEmail = (name, shifts) =>
+  wrap(`<p>Hi ${name},</p>
+        <p>The schedule for this week has been <strong>taken offline</strong> for edits. The following shifts are affected:</p>
+        ${tableOpen}${shifts.map((s) => shiftRow(s, '#fef9c3')).join('')}${tableClose}
+        <p>You will be notified once the updated schedule is published.</p>`);
+
 export const swapApprovedEmail = (name, isRequester, shift, otherName) =>
   wrap(`<p>Hi ${name},</p>
         ${isRequester
