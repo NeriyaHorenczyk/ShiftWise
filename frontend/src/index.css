@@ -1164,6 +1164,7 @@ button[type='submit']:disabled {
 
 .swap-form {
   display: flex;
+  flex-direction: column;
   gap: 0.375rem;
   margin-top: 0.5rem;
 }
