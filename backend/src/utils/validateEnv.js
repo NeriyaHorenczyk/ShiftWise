@@ -8,7 +8,7 @@ const REQUIRED_ENV_VARS = [
 ];
 
 const validateEnv = () => {
-  const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+  const missing = REQUIRED_ENV_VARS.filter((key) => process.env[key] === undefined);
 
   if (missing.length > 0) {
     console.error('Missing required environment variables:');
