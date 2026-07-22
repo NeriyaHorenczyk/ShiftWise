@@ -7,16 +7,27 @@ import {
   formatWeekRange,
   isToday,
 } from '../utils/dateUtils';
+import { eventBlockStyle } from '../utils/weekGridUtils';
 import { LuChevronLeft, LuChevronRight } from 'react-icons/lu';
 import useAuth from '../hooks/useAuth';
+import WeekTimeGrid from '../components/WeekTimeGrid';
 
 const SLOTS = ['morning', 'afternoon', 'evening'];
 const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
 
-// cycle: null → available → preferred → null
+// Hour ranges must match getSlot() in shiftController.js so the availability
+// grid lines up with how auto-assign actually interprets each slot.
+// Evening (20:00–06:00) wraps past midnight, so it renders as two segments.
+const SLOT_HOURS = {
+  morning: [[6, 13]],
+  afternoon: [[13, 20]],
+  evening: [[20, 24], [0, 6]],
+};
+
+// cycle: available (default) → preferred → unavailable → available (default)
 const cycleStatus = (current) => {
-  if (!current) return 'available';
-  if (current === 'available') return 'preferred';
+  if (!current || current === 'available') return 'preferred';
+  if (current === 'preferred') return 'unavailable';
   return null;
 };
 
@@ -41,7 +52,7 @@ const Availability = () => {
           week_start: toDateString(weekStart),
           user_id: currentUser.id,
         });
-        
+
         // build grid from API response
         // grid[day_of_week][slot] = status
         const newGrid = {};
@@ -83,10 +94,12 @@ const Availability = () => {
     setError('');
     setSuccess('');
     try {
-      // build slots array from grid
+      // build slots array from grid — "available" is the implicit default,
+      // so only explicit preferred/unavailable overrides need to be sent
       const slots = [];
       Object.entries(grid).forEach(([dayIndex, slotMap]) => {
         Object.entries(slotMap).forEach(([slot, status]) => {
+          if (status === 'available') return;
           slots.push({
             day_of_week: parseInt(dayIndex),
             slot,
@@ -95,14 +108,9 @@ const Availability = () => {
         });
       });
 
-    console.log('slots to save:', slots);
-    console.log('grid:', grid);
-
       if (slots.length === 0) {
-        console.log('deleting week...');
         // clear the whole week
         await api.deleteAvailability(toDateString(weekStart));
-        console.log('deleted');
       } else {
         await api.submitAvailability({
           week_start: toDateString(weekStart),
@@ -112,7 +120,6 @@ const Availability = () => {
       setSuccess('Availability saved successfully.');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      console.log('error:', err);
       setError(err.message);
     } finally {
       setSaving(false);
@@ -133,14 +140,8 @@ const Availability = () => {
 
   const goToToday = () => setWeekStart(getWeekStart());
 
-  const getSlotClass = (status) => {
-    if (status === 'preferred') return 'avail-slot preferred';
-    if (status === 'available') return 'avail-slot available';
-    return 'avail-slot';
-  };
-
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <h2>My Availability</h2>
         <p className="page-subtitle">{formatWeekRange(weekStart)}</p>
@@ -161,13 +162,13 @@ const Availability = () => {
 
         <div className="avail-legend">
           <span className="legend-item">
-            <span className="legend-dot gray" /> Unavailable
-          </span>
-          <span className="legend-item">
-            <span className="legend-dot yellow" /> Available
+            <span className="legend-dot yellow" /> Available (default)
           </span>
           <span className="legend-item">
             <span className="legend-dot green" /> Preferred
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot gray" /> Unavailable
           </span>
         </div>
 
@@ -186,38 +187,27 @@ const Availability = () => {
       {loading ? (
         <div className="page-loading">Loading availability...</div>
       ) : (
-        <div className="schedule-grid">
-          {weekDays.map((day, dayIndex) => (
-            <div
-              key={dayIndex}
-              className={`schedule-day ${isToday(day) ? 'today' : ''}`}
-              style={{ cursor: 'default' }}
-            >
-              <div className="schedule-day-header">
-                <span className="day-name">
-                  {day.toLocaleDateString('en-IL', { weekday: 'short', month: 'short', day: 'numeric' })}
-                </span>
+        <WeekTimeGrid
+          weekDays={weekDays}
+          isToday={isToday}
+          renderDayLabel={day => day.toLocaleDateString('en-IL', { weekday: 'short', month: 'short', day: 'numeric' })}
+          renderDay={(day, dayIndex) => SLOTS.flatMap(slot => {
+            const status = grid[dayIndex]?.[slot] || null;
+            const effective = status || 'available';
+            return SLOT_HOURS[slot].map(([startHour, endHour], segIndex) => (
+              <div
+                key={`${slot}-${segIndex}`}
+                className={`tg-avail ${effective}`}
+                style={eventBlockStyle({ startHour, endHour, col: 0, colCount: 1 })}
+                onClick={() => handleCellClick(dayIndex, slot)}
+                title="Click to cycle: available → preferred → unavailable"
+              >
+                <span className="tg-avail-label">{SLOT_LABELS[slot]}</span>
+                <span className="tg-avail-status">{effective}</span>
               </div>
-
-              <div className="avail-slots">
-                {SLOTS.map(slot => {
-                  const status = grid[dayIndex]?.[slot] || null;
-                  return (
-                    <div
-                      key={slot}
-                      className={getSlotClass(status)}
-                      onClick={() => handleCellClick(dayIndex, slot)}
-                      title={`Click to cycle: unavailable → available → preferred`}
-                    >
-                      <span className="slot-label">{SLOT_LABELS[slot]}</span>
-                      {status && <span className="slot-status">{status}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+            ));
+          })}
+        />
       )}
     </div>
   );

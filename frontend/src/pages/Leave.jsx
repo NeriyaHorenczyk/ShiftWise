@@ -240,6 +240,9 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
     if (new Date(form.start_date) > new Date(form.end_date))
       return setError('Start date must be before end date.');
 
+    if (!file)
+      return setError('A supporting document (medical certificate) is required.');
+
     setLoading(true);
     try {
       const formData = new FormData();
@@ -299,12 +302,13 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
           </div>
 
           <div className="form-group">
-            <label>Supporting document (optional)</label>
+            <label>Medical certificate (required)</label>
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
               onChange={e => setFile(e.target.files[0])}
               className="file-input"
+              required
             />
             <p className="input-hint">PDF, JPG or PNG, max 5MB</p>
           </div>

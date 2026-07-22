@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "oracledb": "^7.0.1"
+  }
+}

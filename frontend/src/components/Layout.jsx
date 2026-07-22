@@ -69,6 +69,29 @@ const Layout = ({ children }) => {
           </button>
         </div>
 
+        <div className="sidebar-user">
+          <div className="user-info">
+            <div className="user-avatar">
+              {currentUser?.avatar_url ? (
+                <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
+              ) : (
+                <span>{currentUser?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
+              )}
+            </div>
+            {!collapsed && (
+              <div className="user-details">
+                <span className="user-name">{currentUser?.name}</span>
+                <span className="user-role">{currentUser?.role}</span>
+              </div>
+            )}
+          </div>
+
+          <button className="logout-btn" onClick={() => setShowLogoutModal(true)} title="Sign out">
+            <LuLogOut size={18} />
+            {!collapsed && <span>Sign out</span>}
+          </button>
+        </div>
+
         <nav className="sidebar-nav">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -141,27 +164,6 @@ const Layout = ({ children }) => {
               : <LuMoon size={18} className="moon-icon" />
             }
             {!collapsed && <span>{isDark ? 'Light mode' : 'Dark mode'}</span>}
-          </button>
-
-            <div className="user-info">
-            <div className="user-avatar">
-                {currentUser?.avatar_url ? (
-                <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
-                ) : (
-                <span>{currentUser?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
-                )}
-            </div>
-            {!collapsed && (
-                <div className="user-details">
-                <span className="user-name">{currentUser?.name}</span>
-                <span className="user-role">{currentUser?.role}</span>
-                </div>
-            )}
-            </div>
-
-          <button className="logout-btn" onClick={() => setShowLogoutModal(true)} title="Sign out">
-            <LuLogOut size={18} />
-            {!collapsed && <span>Sign out</span>}
           </button>
         </div>
 

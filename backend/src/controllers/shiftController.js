@@ -4,7 +4,14 @@ import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEma
 
 export const getAllShifts = async (req, res) => {
   try {
-    const { department_id, week_start, status } = req.query;
+    let { department_id, week_start, status } = req.query;
+
+    // employees and shift managers must never see another department's shifts,
+    // regardless of what department_id they pass in
+    if (['employee', 'shift_manager'].includes(req.user.role)) {
+      const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+      department_id = me?.department_id || null;
+    }
 
     let query = `
       SELECT 
@@ -57,9 +64,9 @@ export const getAllShifts = async (req, res) => {
 export const getShiftById = async (req, res) => {
   try {
     const [shifts] = await pool.query(`
-      SELECT 
+      SELECT
         s.id, s.title, s.start_time, s.end_time,
-        s.required_staff, s.status,
+        s.required_staff, s.status, s.department_id,
         d.name AS department_name,
         u.name AS created_by_name
       FROM shifts s
@@ -70,6 +77,13 @@ export const getShiftById = async (req, res) => {
 
     if (shifts.length === 0)
       return res.status(404).json({ error: 'Shift not found.' });
+
+    // employees and shift managers can only view published shifts in their own department
+    if (['employee', 'shift_manager'].includes(req.user.role)) {
+      const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+      if (shifts[0].department_id !== me?.department_id || shifts[0].status !== 'published')
+        return res.status(403).json({ error: 'Access denied.' });
+    }
 
     // fetch assigned employees separately
     const [assignments] = await pool.query(`
@@ -317,9 +331,9 @@ export const assignEmployee = async (req, res) => {
 };
 
 const getSlot = (hour) => {
-  if (hour >= 7 && hour < 15) return 'morning';
-  if (hour >= 15 && hour < 23) return 'afternoon';
-  return 'evening'; // 23:00–07:00
+  if (hour >= 6 && hour < 13) return 'morning';
+  if (hour >= 13 && hour < 20) return 'afternoon';
+  return 'evening'; // 20:00–06:00
 };
 
 const overlaps = (busyList, start, end) =>
@@ -379,10 +393,10 @@ export const autoAssign = async (req, res) => {
       [week_start, employeeIds]
     );
 
-    // availMap: `${userId}_${dayOfWeek}_${slot}` -> score  (preferred=3, available=2)
+    // availMap: `${userId}_${dayOfWeek}_${slot}` -> raw status string
     const availMap = {};
     for (const a of availability) {
-      availMap[`${a.user_id}_${a.day_of_week}_${a.slot}`] = a.status === 'preferred' ? 3 : 2;
+      availMap[`${a.user_id}_${a.day_of_week}_${a.slot}`] = a.status;
     }
 
     // 4. All shifts this week to detect overlaps with already-assigned shifts
@@ -442,8 +456,10 @@ export const autoAssign = async (req, res) => {
 
       const candidates = employees
         .filter(e => !overlaps(busyMap[e.id] || [], shiftStart, shiftEnd))
+        .filter(e => availMap[`${e.id}_${dayOfWeek}_${slot}`] !== 'unavailable')
         .map(e => {
-          const base = availMap[`${e.id}_${dayOfWeek}_${slot}`] || 0;
+          const status = availMap[`${e.id}_${dayOfWeek}_${slot}`];
+          const base = status === 'preferred' ? 3 : status === 'available' ? 2 : 0;
           const smBonus = !hasSmAssigned && empRole[e.id] === 'shift_manager' ? 0.5 : 0;
           return { id: e.id, score: base + smBonus, workload: workload[e.id] || 0 };
         })

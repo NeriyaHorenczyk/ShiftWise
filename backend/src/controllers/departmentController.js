@@ -3,13 +3,22 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const getAllDepartments = async (req, res) => {
   try {
-    const [rows] = await pool.query(`
+    let query = `
       SELECT d.id, d.name, d.created_at,
         u.name AS lead_name,
         u.username AS lead_username
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
-    `);
+    `;
+    const params = [];
+
+    // employees and shift managers should not be aware other departments exist
+    if (['employee', 'shift_manager'].includes(req.user.role)) {
+      query += ' WHERE d.id = (SELECT department_id FROM users WHERE id = ?)';
+      params.push(req.user.id);
+    }
+
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

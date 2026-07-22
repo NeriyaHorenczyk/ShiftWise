@@ -82,7 +82,7 @@ export const submitAvailability = async (req, res) => {
       return res.status(400).json({ error: 'week_start must be a Sunday.' });
 
     const validSlots = ['morning', 'afternoon', 'evening'];
-    const validStatuses = ['available', 'preferred'];
+    const validStatuses = ['available', 'preferred', 'unavailable'];
 
     for (const s of slots) {
       if (s.day_of_week < 0 || s.day_of_week > 6)
@@ -93,13 +93,19 @@ export const submitAvailability = async (req, res) => {
         return res.status(400).json({ error: `Invalid status: ${s.status}` });
     }
 
-    // upsert each slot — insert or update if already exists
+    // the frontend always sends the full week's grid, so replace rather than
+    // upsert — otherwise a slot cleared back to the default status would
+    // never actually be removed and would reappear as stale data on reload
+    await pool.query(
+      'DELETE FROM availability WHERE user_id = ? AND week_start = ?',
+      [req.user.id, week_start]
+    );
+
     for (const s of slots) {
       const id = uuidv4();
       await pool.query(`
         INSERT INTO availability (id, user_id, week_start, day_of_week, slot, status)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE status = VALUES(status)
       `, [id, req.user.id, week_start, s.day_of_week, s.slot, s.status]);
     }
 

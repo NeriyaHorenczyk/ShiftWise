@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { LuCamera } from 'react-icons/lu';
+import { LuCamera, LuX } from 'react-icons/lu';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
 
@@ -16,6 +16,7 @@ const Profile = () => {
   const fileInputRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [showAvatarPreview, setShowAvatarPreview] = useState(false);
 
   const [name, setName] = useState(currentUser?.name || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -106,23 +107,33 @@ const Profile = () => {
           <div className="profile-card">
             <h3 className="profile-card-title">Avatar</h3>
             <div className="profile-avatar-section">
-              <button
-                className="profile-avatar-btn"
-                onClick={() => fileInputRef.current?.click()}
-                title="Click to change avatar"
-                disabled={avatarLoading}
-              >
-                <div className="profile-avatar-lg">
+              <div className="profile-avatar-btn">
+                <div
+                  className="profile-avatar-lg"
+                  onClick={() => {
+                    if (avatarLoading) return;
+                    currentUser?.avatar_url
+                      ? setShowAvatarPreview(true)
+                      : fileInputRef.current?.click();
+                  }}
+                  title={currentUser?.avatar_url ? 'Click to view full size' : 'Click to upload a photo'}
+                >
                   {currentUser?.avatar_url ? (
                     <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
                   ) : (
                     <span>{initials}</span>
                   )}
-                  <div className="profile-avatar-overlay">
-                    <LuCamera size={22} />
-                  </div>
                 </div>
-              </button>
+                <button
+                  type="button"
+                  className="profile-avatar-camera-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Change photo"
+                  disabled={avatarLoading}
+                >
+                  <LuCamera size={16} />
+                </button>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -237,6 +248,24 @@ const Profile = () => {
         </div>
 
       </div>
+
+      {showAvatarPreview && currentUser?.avatar_url && (
+        <div className="avatar-preview-overlay" onClick={() => setShowAvatarPreview(false)}>
+          <button
+            className="avatar-preview-close"
+            onClick={() => setShowAvatarPreview(false)}
+            title="Close"
+          >
+            <LuX size={22} />
+          </button>
+          <img
+            src={`http://localhost:3000${currentUser.avatar_url}`}
+            alt={currentUser.name}
+            className="avatar-preview-img"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };

@@ -61,7 +61,7 @@ CREATE TABLE availability (
   week_start DATE NOT NULL,
   day_of_week TINYINT NOT NULL, -- 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   slot ENUM('morning', 'afternoon', 'evening') NOT NULL,
-  status ENUM('available', 'preferred') NOT NULL,
+  status ENUM('available', 'preferred', 'unavailable') NOT NULL,
   UNIQUE (user_id, week_start, day_of_week, slot),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

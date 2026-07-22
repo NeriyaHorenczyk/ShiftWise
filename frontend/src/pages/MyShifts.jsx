@@ -13,8 +13,14 @@ import {
 import {
   LuChevronLeft,
   LuChevronRight,
-  LuArrowLeftRight,
+  LuX,
 } from 'react-icons/lu';
+import WeekTimeGrid from '../components/WeekTimeGrid';
+import { splitIntoDaySegments, layoutColumns, eventBlockStyle } from '../utils/weekGridUtils';
+
+// Shift managers are fair game for a regular swap — only leads/admins (actual
+// department leadership) are off-limits.
+const LEADERSHIP_ROLES = ['lead', 'admin'];
 
 const MyShifts = () => {
   const { currentUser } = useAuth();
@@ -56,15 +62,20 @@ const MyShifts = () => {
 
   const goToToday = () => setWeekStart(getWeekStart());
 
-  const getShiftsForDay = (day) => {
-    return shifts.filter(shift => {
-      const shiftDate = new Date(shift.start_time);
-      return shiftDate.toDateString() === day.toDateString();
+  const getSegmentsForDay = (day) => {
+    const segments = [];
+    shifts.forEach(shift => {
+      splitIntoDaySegments(new Date(shift.start_time), new Date(shift.end_time)).forEach(seg => {
+        if (seg.dayStart.toDateString() === day.toDateString()) {
+          segments.push({ shift, ...seg });
+        }
+      });
     });
+    return layoutColumns(segments);
   };
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <h2>My Shifts</h2>
         <p className="page-subtitle">{formatWeekRange(weekStart)}</p>
@@ -89,65 +100,86 @@ const MyShifts = () => {
       {loading ? (
         <div className="page-loading">Loading shifts...</div>
       ) : (
-        <div className="schedule-grid">
-          {weekDays.map((day, i) => {
-            const dayShifts = getShiftsForDay(day);
-            return (
-              <div
-                key={i}
-                className={`schedule-day ${isToday(day) ? 'today' : ''}`}
-              >
-                <div className="schedule-day-header">
-                  <span className="day-name">{formatDay(day)}</span>
-                </div>
-
-                <div className="schedule-day-shifts">
-                  {dayShifts.length === 0 ? (
-                    <div className="no-shifts">No shifts</div>
-                  ) : (
-                    dayShifts.map(shift => (
-                      <MyShiftCard
-                        key={shift.id}
-                        shift={shift}
-                        currentUser={currentUser}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <WeekTimeGrid
+          weekDays={weekDays}
+          isToday={isToday}
+          renderDayLabel={formatDay}
+          renderDay={(day) => getSegmentsForDay(day).map(seg => (
+            <MyShiftCard
+              key={`${seg.shift.id}-${seg.startHour}`}
+              shift={seg.shift}
+              currentUser={currentUser}
+              style={eventBlockStyle(seg)}
+            />
+          ))}
+        />
       )}
     </div>
   );
 };
 
-const MyShiftCard = ({ shift, currentUser }) => {
-  const [showSwapForm, setShowSwapForm] = useState(false);
+const MyShiftCard = ({ shift, currentUser, style }) => {
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <>
+      <div
+        className={`tg-event clickable ${shift.status === 'published' ? 'shift-published' : 'shift-draft'}`}
+        style={style}
+        onClick={() => setShowModal(true)}
+        title={`${shift.title} · ${formatTime(shift.start_time)} – ${formatTime(shift.end_time)}`}
+      >
+        <div className="tg-event-title">
+          {shift.title}
+          {shift.is_shift_manager === 1 && (
+            <span className="sm-badge" style={{ marginLeft: '0.375rem' }}>SM</span>
+          )}
+        </div>
+        <div className="tg-event-time">
+          {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+        </div>
+      </div>
+
+      {showModal && (
+        <SwapRequestModal shift={shift} currentUser={currentUser} onClose={() => setShowModal(false)} />
+      )}
+    </>
+  );
+};
+
+const SwapRequestModal = ({ shift, currentUser, onClose }) => {
   const [teamMembers, setTeamMembers] = useState([]);
   const [targetUsername, setTargetUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleOpenSwap = async () => {
-    if (!showSwapForm) {
+  useEffect(() => {
+    const loadColleagues = async () => {
       try {
-        const users = await api.getUsers();
-        const colleagues = users.filter(u => u.username !== currentUser.username);
-        // SM-flagged shifts can only swap with other shift_managers
+        const [users, shiftDetail] = await Promise.all([
+          api.getUsers(),
+          api.getShiftById(shift.id),
+        ]);
+        const assignedUsernames = shiftDetail.assignments?.map(a => a.username) || [];
+        const colleagues = users.filter(u =>
+          u.username !== currentUser.username &&
+          !assignedUsernames.includes(u.username)
+        );
+        // SM-flagged shifts can only swap with other shift_managers;
+        // a regular shift can be handed to another employee or a shift manager,
+        // but not to department leadership (lead/admin)
         setTeamMembers(
           shift.is_shift_manager === 1
             ? colleagues.filter(u => u.role === 'shift_manager')
-            : colleagues
+            : colleagues.filter(u => !LEADERSHIP_ROLES.includes(u.role))
         );
       } catch (err) {
         setError(err.message);
       }
-    }
-    setShowSwapForm(prev => !prev);
-  };
+    };
+    loadColleagues();
+  }, [shift.id, shift.is_shift_manager, currentUser.username]);
 
   const handleSwapRequest = async () => {
     if (!targetUsername) return;
@@ -156,7 +188,6 @@ const MyShiftCard = ({ shift, currentUser }) => {
     try {
       await api.createSwap({ shift_id: shift.id, target_username: targetUsername });
       setSuccess('Swap request sent successfully.');
-      setShowSwapForm(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -165,54 +196,50 @@ const MyShiftCard = ({ shift, currentUser }) => {
   };
 
   return (
-    <div className={`shift-card shift-${shift.status}`}>
-      <div className="shift-card-title">
-        {shift.title}
-        {shift.is_shift_manager === 1 && (
-          <span className="sm-badge" style={{ marginLeft: '0.375rem' }}>SM</span>
-        )}
-      </div>
-      <div className="shift-card-time">
-        {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
-      </div>
-      <div className="shift-card-meta">
-        <span className="list-item-sub">{shift.department_name}</span>
-      </div>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h3 className="modal-title">{shift.title}</h3>
+            <p className="modal-subtitle">
+              {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+            </p>
+          </div>
+          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+        </div>
 
-      {/* Swap request */}
-      <button
-        className="swap-btn"
-        onClick={handleOpenSwap}
-        title="Request swap"
-      >
-        <LuArrowLeftRight size={13} />
-        <span>Request swap</span>
-      </button>
-
-      {showSwapForm && (
-        <div className="swap-form">
+        <div className="form-group">
+          <label>Request swap with</label>
           <select
             className="dept-select"
             value={targetUsername}
             onChange={e => setTargetUsername(e.target.value)}
+            disabled={!!success}
           >
             <option value="">Select colleague...</option>
             {teamMembers.map(u => (
               <option key={u.username} value={u.username}>{u.username}</option>
             ))}
           </select>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={handleSwapRequest}
-            disabled={!targetUsername || loading}
-          >
-            {loading ? 'Sending...' : 'Send'}
-          </button>
         </div>
-      )}
 
-      {error && <div className="error-message" style={{ marginTop: '0.5rem', fontSize: '0.8125rem' }}>{error}</div>}
-      {success && <div className="success-message">{success}</div>}
+        {error && <div className="error-message">{error}</div>}
+        {success && <div className="success-message">{success}</div>}
+
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+          {!success && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSwapRequest}
+              disabled={!targetUsername || loading}
+            >
+              {loading ? 'Sending...' : 'Send request'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

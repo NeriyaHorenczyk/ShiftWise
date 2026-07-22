@@ -18,11 +18,14 @@ import {
   LuX,
 } from 'react-icons/lu';
 import ConfirmModal from '../components/ConfirmModal';
+import WeekTimeGrid from '../components/WeekTimeGrid';
+import { splitIntoDaySegments, layoutColumns, eventBlockStyle } from '../utils/weekGridUtils';
 
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
 
   const canEdit = isLead;
+  const canPickDept = isAdmin || isLead;
 
   const [weekStart, setWeekStart] = useState(getWeekStart());
   const [departments, setDepartments] = useState([]);
@@ -101,11 +104,16 @@ const Schedule = () => {
 
   const goToToday = () => setWeekStart(getWeekStart());
 
-  const getShiftsForDay = (day) => {
-    return shifts.filter(shift => {
-      const shiftDate = new Date(shift.start_time);
-      return shiftDate.toDateString() === day.toDateString();
+  const getSegmentsForDay = (day) => {
+    const segments = [];
+    shifts.forEach(shift => {
+      splitIntoDaySegments(new Date(shift.start_time), new Date(shift.end_time)).forEach(seg => {
+        if (seg.dayStart.toDateString() === day.toDateString()) {
+          segments.push({ shift, ...seg });
+        }
+      });
     });
+    return layoutColumns(segments);
   };
 
   const handleDayClick = (day) => {
@@ -251,7 +259,7 @@ const Schedule = () => {
   const publishedCount = shifts.filter(s => s.status === 'published').length;
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <h2>Schedule</h2>
         <p className="page-subtitle">
@@ -273,7 +281,7 @@ const Schedule = () => {
           </button>
         </div>
 
-        {departments.length > 0 && (
+        {canPickDept && departments.length > 0 && (
           <select
             className="dept-select"
             value={selectedDept}
@@ -336,60 +344,36 @@ const Schedule = () => {
       {loading ? (
         <div className="page-loading">Loading schedule...</div>
       ) : (
-        <div className="schedule-grid">
-          {weekDays.map((day, i) => (
-            <div
-              key={i}
-              className={`schedule-day ${isToday(day) ? 'today' : ''}`}
-              onClick={() => handleDayClick(day)}
-            >
-              <div className="schedule-day-header">
-                <span className="day-name">{formatDay(day)}</span>
-                {/* {canEdit && (
-                  <button
-                    className="add-shift-btn"
-                    onClick={e => { e.stopPropagation(); handleDayClick(day); }}
-                    title="Add shift"
-                  >
-                    <LuPlus size={14} />
-                  </button>
-                )} */}
+        <WeekTimeGrid
+          weekDays={weekDays}
+          isToday={isToday}
+          renderDayLabel={formatDay}
+          onDayLabelClick={canEdit ? handleDayClick : undefined}
+          renderDay={(day) => getSegmentsForDay(day).map(seg => {
+            const shift = seg.shift;
+            const statusClass = shift.status === 'published'
+              ? (shift.assigned_count >= shift.required_staff ? 'shift-published' : 'shift-understaffed')
+              : 'shift-draft';
+            return (
+              <div
+                key={`${shift.id}-${seg.startHour}`}
+                className={`tg-event ${statusClass} ${canEdit ? 'clickable' : ''}`}
+                style={eventBlockStyle(seg)}
+                onClick={canEdit ? (e => handleShiftClick(e, shift)) : undefined}
+                title={`${shift.title} · ${formatTime(shift.start_time)} – ${formatTime(shift.end_time)}`}
+              >
+                <div className="tg-event-title">{shift.title}</div>
+                <div className="tg-event-time">
+                  {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+                </div>
+                <div className="tg-event-meta">
+                  <LuUsers size={11} />
+                  {shift.assigned_count}/{shift.required_staff}
+                </div>
               </div>
-
-              <div className="schedule-day-shifts">
-                {getShiftsForDay(day).length === 0 ? (
-                  <div className="no-shifts">No shifts</div>
-                ) : (
-                  getShiftsForDay(day).map(shift => (
-                    <div
-                      key={shift.id}
-                      className={`shift-card ${
-                        shift.status === 'published'
-                          ? shift.assigned_count >= shift.required_staff
-                            ? 'shift-published'
-                            : 'shift-understaffed'
-                          : 'shift-draft'
-                      }`}
-                      onClick={e => handleShiftClick(e, shift)}
-                    >
-                      <div className="shift-card-title">{shift.title}</div>
-                      <div className="shift-card-time">
-                        {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
-                      </div>
-                      <div className="shift-card-meta">
-                        <span className="shift-card-staff">
-                          <LuUsers size={2} />
-                          {shift.assigned_count}/{shift.required_staff}
-                        </span>
-                        <span className={`badge badge-${shift.status}`}>{shift.status}</span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+            );
+          })}
+        />
       )}
 
       {/* Create shift modal */}

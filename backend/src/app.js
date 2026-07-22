@@ -41,4 +41,15 @@ app.use('/leave', leaveRouter);
 app.use('/reports', reportsRouter);
 app.use('/blueprints', blueprintRouter);
 
+// 404s and thrown/passed-through errors still need to come back as JSON,
+// otherwise the frontend gets Express's default HTML page and fails to parse it.
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found.' });
+});
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.status || 500).json({ error: err.message || 'Something went wrong.' });
+});
+
 export default app;

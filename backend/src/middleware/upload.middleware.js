@@ -1,6 +1,11 @@
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+import fs from 'fs';
+
+// multer never creates its destination directory — it errors out (as a non-JSON
+// HTML response, since there's no matching error handler) if 'uploads/' is missing.
+fs.mkdirSync('uploads', { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

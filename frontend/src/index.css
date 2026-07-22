@@ -222,6 +222,14 @@ button[type='submit']:disabled {
   justify-content: center;
 }
 
+.sidebar-user {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .sidebar-nav {
   flex: 1;
   padding: 0.75rem 0.5rem;
@@ -405,6 +413,7 @@ button[type='submit']:disabled {
   }
 
   .sidebar-header,
+  .sidebar-user,
   .sidebar-footer,
   .nav-section-label,
   .collapse-btn {
@@ -441,6 +450,12 @@ button[type='submit']:disabled {
 /* ── Pages ── */
 .page {
   max-width: 1200px;
+}
+
+/* Calendar pages (Schedule / My Shifts / My Availability) benefit from
+   using the full available width instead of the standard reading-width cap */
+.page-wide {
+  max-width: none;
 }
 
 .page-header {
@@ -1836,14 +1851,10 @@ input[type='time'] {
 }
 
 .profile-avatar-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
+  position: relative;
+  display: inline-block;
   border-radius: 50%;
 }
-
-.profile-avatar-btn:disabled { cursor: default; }
 
 .profile-avatar-lg {
   width: 88px;
@@ -1858,6 +1869,7 @@ input[type='time'] {
   font-weight: 700;
   overflow: hidden;
   position: relative;
+  cursor: pointer;
 }
 
 .profile-avatar-lg img {
@@ -1866,22 +1878,64 @@ input[type='time'] {
   object-fit: cover;
 }
 
-.profile-avatar-overlay {
+.profile-avatar-camera-btn {
   position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  right: -2px;
+  bottom: -2px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #ffffff;
+  border: 2px solid var(--bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s;
-  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
-.profile-avatar-btn:hover .profile-avatar-overlay,
-.profile-avatar-btn:focus .profile-avatar-overlay {
-  opacity: 1;
+.profile-avatar-camera-btn:hover { background: var(--accent-hover); }
+.profile-avatar-camera-btn:disabled { cursor: default; opacity: 0.6; }
+
+/* Full-size avatar preview lightbox */
+.avatar-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
 }
+
+.avatar-preview-img {
+  max-width: min(90vw, 500px);
+  max-height: 90vh;
+  border-radius: 12px;
+  object-fit: contain;
+  cursor: default;
+}
+
+.avatar-preview-close {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #ffffff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.avatar-preview-close:hover { background: rgba(255, 255, 255, 0.2); }
 
 .profile-hint {
   font-size: 0.8125rem;
@@ -2569,4 +2623,181 @@ input[type='time'] {
   .reports-controls label { flex-wrap: wrap; }
   .date-input { width: 100%; }
   .reports-controls .dept-select { width: 100%; }
+
+  /* Week time grid — narrower hour column, smaller day labels */
+  .week-timegrid-corner,
+  .week-timegrid-hours { flex-basis: 40px; }
+  .week-timegrid-daylabel { padding: 0.5rem 0.25rem; font-size: 0.6875rem; }
+  .week-timegrid-hour { font-size: 0.5625rem; padding-right: 0.25rem; }
 }
+
+/* ── Week time grid ──
+   Structure: a fixed-width "hours" column (left) + a flexible 7-day area
+   (right). The 7-day area uses an identical grid-template-columns/gap in
+   both the header row and the body so day columns line up exactly. This
+   must stay in sync between .week-timegrid-daylabels and .week-timegrid-days
+   — they are NOT the same grid, just two grids sized/spaced identically. */
+.week-timegrid {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.week-timegrid-headerrow {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.week-timegrid-corner {
+  flex: 0 0 56px;
+  border-right: 1px solid var(--border);
+}
+
+.week-timegrid-daylabels {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+  padding: 0 0.125rem;
+}
+
+.week-timegrid-daylabel {
+  padding: 0.625rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.week-timegrid-daylabel.clickable { cursor: pointer; }
+.week-timegrid-daylabel.clickable:hover { background: var(--bg-secondary); }
+.week-timegrid-daylabel.today { background: var(--accent); color: #ffffff; }
+
+.week-timegrid-body {
+  display: flex;
+  position: relative;
+}
+
+.week-timegrid-hours {
+  flex: 0 0 56px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+.week-timegrid-hour {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  padding: 0.125rem 0.375rem 0 0;
+  text-align: right;
+  box-sizing: border-box;
+}
+
+.week-timegrid-hour:first-child { border-top: none; }
+
+.week-timegrid-days {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+  padding: 0 0.125rem;
+}
+
+.week-timegrid-daycol {
+  position: relative;
+  border-left: 1px solid var(--border);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--border) 0,
+    var(--border) 1px,
+    transparent 1px,
+    transparent 40px
+  );
+}
+
+.week-timegrid-daycol.today {
+  background-color: rgba(79, 70, 229, 0.05);
+}
+
+[data-theme='dark'] .week-timegrid-daycol.today {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+/* Event blocks placed on the grid (Schedule / My Shifts) */
+.tg-event {
+  border-radius: 6px;
+  padding: 0.25rem 0.4375rem;
+  overflow: hidden;
+  box-sizing: border-box;
+  font-size: 0.75rem;
+  border-left: 3px solid transparent;
+  cursor: default;
+}
+
+.tg-event.clickable { cursor: pointer; }
+.tg-event.clickable:hover { opacity: 0.85; }
+
+.tg-event-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tg-event-time {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.tg-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.125rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.tg-event.shift-draft { background: var(--bg-secondary); border-left-color: var(--warning); }
+.tg-event.shift-published { background: #dcfce7; border-left-color: var(--success); }
+.tg-event.shift-understaffed { background: #fef9c3; border-left-color: var(--warning); }
+
+[data-theme='dark'] .tg-event.shift-understaffed { background: #42200633; }
+[data-theme='dark'] .tg-event.shift-published { background: #14532d33; }
+
+/* Availability blocks placed on the grid */
+.tg-avail {
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: center;
+  padding: 0.25rem;
+}
+
+.tg-avail:hover { border-color: var(--accent); }
+
+.tg-avail-label { font-size: 0.75rem; font-weight: 500; color: var(--text-primary); }
+.tg-avail-status { font-size: 0.6875rem; color: var(--text-secondary); text-transform: capitalize; }
+
+.tg-avail.available { background: #fef9c3; border-color: #f59e0b; }
+.tg-avail.preferred { background: #dcfce7; border-color: #16a34a; }
+.tg-avail.unavailable { background: var(--bg-secondary); border-color: var(--border); opacity: 0.65; }
+
+[data-theme='dark'] .tg-avail.available { background: #42200633; border-color: #d97706; }
+[data-theme='dark'] .tg-avail.preferred { background: #14532d33; border-color: #16a34a; }

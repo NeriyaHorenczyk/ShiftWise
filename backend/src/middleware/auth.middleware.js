@@ -23,7 +23,7 @@ export const requireRole = (...roles) => (req, res, next) => {
 };
 
 export const requireSelfOrAdmin = (req, res, next) => {
-  if (req.params.userId !== req.user.id && req.user.role !== 'admin') {
+  if (req.params.id !== req.user.id && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied. You can only manage your own data.' });
   }
   next();

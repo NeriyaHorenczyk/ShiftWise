@@ -59,6 +59,9 @@ export const createLeaveRequest = async (req, res) => {
     if (new Date(start_date) > new Date(end_date))
       return res.status(400).json({ error: 'start_date must be before or equal to end_date.' });
 
+    if (!req.files || req.files.length === 0)
+      return res.status(400).json({ error: 'A supporting document (medical certificate) is required.' });
+
     // check for overlapping pending/approved leave requests
     const [overlapping] = await pool.query(`
       SELECT id FROM leave_requests

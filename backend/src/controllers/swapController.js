@@ -90,6 +90,14 @@ export const createSwap = async (req, res) => {
     if (targets[0].department_id !== shifts[0].department_id)
       return res.status(400).json({ error: 'You can only swap with employees in the same department.' });
 
+    // can't request a swap with someone already assigned to this shift
+    const [targetAssignment] = await pool.query(
+      'SELECT id FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
+      [shift_id, targets[0].id]
+    );
+    if (targetAssignment.length > 0)
+      return res.status(400).json({ error: 'This employee is already assigned to this shift.' });
+
     // if requester is acting as shift manager in this shift,
     // target must also be a shift_manager
     const [requesterAssignment] = await pool.query(
@@ -99,6 +107,11 @@ export const createSwap = async (req, res) => {
 
     if (requesterAssignment[0].is_shift_manager && targets[0].role !== 'shift_manager')
       return res.status(400).json({ error: 'You are acting as shift manager in this shift. You can only swap with another shift manager.' });
+
+    // regular requesters can swap with another employee or a shift manager,
+    // but not with department leadership (lead/admin)
+    if (!requesterAssignment[0].is_shift_manager && ['lead', 'admin'].includes(targets[0].role))
+      return res.status(400).json({ error: 'You cannot request a swap with an employee in a managerial position.' });
 
     // check no pending swap already exists for this shift by this requester
     const [existing] = await pool.query(

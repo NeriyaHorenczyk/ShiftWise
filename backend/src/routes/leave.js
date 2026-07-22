@@ -10,11 +10,18 @@ import {
 
 const router = Router();
 
+const handleDocumentUpload = (req, res, next) => {
+  upload.any()(req, res, err => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+};
+
 router.route('/')
   .get(getLeaveRequests)
   .post(
     requireRole('employee', 'shift_manager'),
-    upload.any(),
+    handleDocumentUpload,
     createLeaveRequest
   );
 
