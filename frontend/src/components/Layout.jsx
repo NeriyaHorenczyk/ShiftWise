@@ -93,7 +93,9 @@ const Layout = ({ children }) => {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {navItems
+            .filter(({ to }) => !(isLead && to === '/my-shifts'))
+            .map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}

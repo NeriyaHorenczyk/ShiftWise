@@ -1,5 +1,22 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getSlot } from '../utils/slot.js';
+
+// Once a shift is published, the assigned employee's availability for that
+// day/slot is locked in — it can no longer be changed via availability edits.
+const getLockedSlotKeys = async (userId, weekStart) => {
+  const [publishedShifts] = await pool.query(
+    `SELECT s.start_time FROM shifts s
+     JOIN shift_assignments sa ON sa.shift_id = s.id
+     WHERE sa.user_id = ? AND s.status = 'published'
+       AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+    [userId, weekStart, weekStart]
+  );
+  return new Set(publishedShifts.map(s => {
+    const d = new Date(s.start_time);
+    return `${d.getDay()}_${getSlot(d.getHours())}`;
+  }));
+};
 
 export const getAvailability = async (req, res) => {
   try {
@@ -93,6 +110,27 @@ export const submitAvailability = async (req, res) => {
         return res.status(400).json({ error: `Invalid status: ${s.status}` });
     }
 
+    // block actual changes to slots locked by a published shift assignment.
+    // The frontend always resubmits the full week's grid, so an unchanged
+    // locked slot must still pass through untouched — only reject if the
+    // submitted value actually differs from what's currently stored.
+    const lockedKeys = await getLockedSlotKeys(req.user.id, week_start);
+    if (lockedKeys.size > 0) {
+      const [existingRows] = await pool.query(
+        'SELECT day_of_week, slot, status FROM availability WHERE user_id = ? AND week_start = ?',
+        [req.user.id, week_start]
+      );
+      const existingMap = {};
+      existingRows.forEach(r => { existingMap[`${r.day_of_week}_${r.slot}`] = r.status; });
+
+      for (const s of slots) {
+        const key = `${s.day_of_week}_${s.slot}`;
+        if (lockedKeys.has(key) && (existingMap[key] || 'available') !== s.status) {
+          return res.status(400).json({ error: 'Cannot modify availability for a date with a published shift assignment.' });
+        }
+      }
+    }
+
     // the frontend always sends the full week's grid, so replace rather than
     // upsert — otherwise a slot cleared back to the default status would
     // never actually be removed and would reappear as stale data on reload
@@ -121,6 +159,17 @@ export const deleteAvailability = async (req, res) => {
 
     if (!week_start)
       return res.status(400).json({ error: 'week_start is required.' });
+
+    const lockedKeys = await getLockedSlotKeys(req.user.id, week_start);
+    if (lockedKeys.size > 0) {
+      const [existingRows] = await pool.query(
+        'SELECT day_of_week, slot FROM availability WHERE user_id = ? AND week_start = ?',
+        [req.user.id, week_start]
+      );
+      const hasLockedRow = existingRows.some(r => lockedKeys.has(`${r.day_of_week}_${r.slot}`));
+      if (hasLockedRow)
+        return res.status(400).json({ error: 'Cannot modify availability for a date with a published shift assignment.' });
+    }
 
     await pool.query(
       'DELETE FROM availability WHERE user_id = ? AND week_start = ?',

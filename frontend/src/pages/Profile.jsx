@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { LuCamera, LuX } from 'react-icons/lu';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
@@ -11,12 +11,18 @@ const ROLE_LABELS = {
 };
 
 const Profile = () => {
-  const { currentUser, updateUser } = useAuth();
+  const { currentUser, updateUser, isLead } = useAuth();
 
   const fileInputRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
+
+  const [deptName, setDeptName] = useState('');
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [deptSaving, setDeptSaving] = useState(false);
+  const [deptError, setDeptError] = useState('');
+  const [deptSuccess, setDeptSuccess] = useState('');
 
   const [name, setName] = useState(currentUser?.name || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -62,6 +68,37 @@ const Profile = () => {
       setInfoError(err.message);
     } finally {
       setInfoLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLead || !currentUser?.department_id) return;
+    const loadDept = async () => {
+      setDeptLoading(true);
+      try {
+        const d = await api.getDepartmentById(currentUser.department_id);
+        setDeptName(d.name);
+      } catch (err) {
+        setDeptError(err.message);
+      } finally {
+        setDeptLoading(false);
+      }
+    };
+    loadDept();
+  }, [isLead, currentUser?.department_id]);
+
+  const handleDeptSave = async (e) => {
+    e.preventDefault();
+    setDeptError('');
+    setDeptSuccess('');
+    setDeptSaving(true);
+    try {
+      await api.updateDepartment(currentUser.department_id, { name: deptName.trim() });
+      setDeptSuccess('Department name updated.');
+    } catch (err) {
+      setDeptError(err.message);
+    } finally {
+      setDeptSaving(false);
     }
   };
 
@@ -174,6 +211,30 @@ const Profile = () => {
         </div>
 
         <div className="profile-right">
+          {/* Department name — leads only */}
+          {isLead && (
+            <div className="profile-card">
+              <h3 className="profile-card-title">Department</h3>
+              <form onSubmit={handleDeptSave}>
+                {deptError && <div className="error-message">{deptError}</div>}
+                {deptSuccess && <div className="success-message">{deptSuccess}</div>}
+                <div className="form-group">
+                  <label>Department Name</label>
+                  <input
+                    type="text"
+                    value={deptName}
+                    onChange={e => setDeptName(e.target.value)}
+                    disabled={deptLoading}
+                    required
+                  />
+                </div>
+                <button type="submit" disabled={deptLoading || deptSaving}>
+                  {deptSaving ? 'Saving…' : 'Save Department Name'}
+                </button>
+              </form>
+            </div>
+          )}
+
           {/* Personal info */}
           <div className="profile-card">
             <h3 className="profile-card-title">Personal Info</h3>

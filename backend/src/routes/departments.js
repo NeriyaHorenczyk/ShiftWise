@@ -16,7 +16,7 @@ router.route('/')
 
 router.route('/:id')
   .get(getDepartmentById)
-  .put(requireRole('admin'), updateDepartment)
+  .put(requireRole('admin', 'lead'), updateDepartment)
   .delete(requireRole('admin'), deleteDepartment);
 
 export default router;

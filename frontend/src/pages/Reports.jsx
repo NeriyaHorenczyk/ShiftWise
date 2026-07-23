@@ -23,7 +23,10 @@ const STATUS_BADGE = {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '—';
-  const [y, m, d] = dateStr.split('-').map(Number);
+  // DATE columns come back from the API as full ISO datetime strings
+  // (e.g. "2026-07-19T00:00:00.000Z") once serialized, not plain "YYYY-MM-DD" —
+  // take just the date portion before parsing, or this silently yields "Invalid Date".
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
@@ -191,13 +194,13 @@ const EmployeeStatsTab = ({ data }) => {
   const totals = data.reduce(
     (acc, r) => ({
       hours: acc.hours + Number(r.total_hours),
-      shifts: acc.shifts + Number(r.shifts_worked),
       swaps: acc.swaps + Number(r.swaps_requested) + Number(r.swaps_received),
     }),
-    { hours: 0, shifts: 0, swaps: 0 }
+    { hours: 0, swaps: 0 }
   );
 
   const avgHours = data.length ? (totals.hours / data.length).toFixed(1) : '0.0';
+  const shiftManagerCount = data.filter(r => r.role === 'shift_manager').length;
 
   return (
     <>
@@ -207,12 +210,12 @@ const EmployeeStatsTab = ({ data }) => {
           <div className="report-stat-label">Employees</div>
         </div>
         <div className="report-stat">
-          <div className="report-stat-value">{avgHours}h</div>
-          <div className="report-stat-label">Avg Hours / Employee</div>
+          <div className="report-stat-value">{shiftManagerCount}</div>
+          <div className="report-stat-label">Shift Managers</div>
         </div>
         <div className="report-stat">
-          <div className="report-stat-value">{totals.shifts}</div>
-          <div className="report-stat-label">Total Shifts Worked</div>
+          <div className="report-stat-value">{avgHours}h</div>
+          <div className="report-stat-label">Avg Hours / Employee</div>
         </div>
         <div className="report-stat">
           <div className="report-stat-value">{totals.swaps}</div>

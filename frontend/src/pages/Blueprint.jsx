@@ -16,7 +16,8 @@ const formatTimeStr = (t) => {
 
 // ── Shift slot form modal (template days, overrides, and new presets) ─────────
 const ShiftSlotFormModal = ({ modalTitle, presets, onSubmit, onClose }) => {
-  const [form, setForm] = useState({ title: '', start_time: '', end_time: '', required_staff: 1, needs_shift_manager: false });
+  // a shift manager is always required for a shift — not user-configurable here
+  const [form, setForm] = useState({ title: '', start_time: '', end_time: '', required_staff: 1, needs_shift_manager: true });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -96,12 +97,6 @@ const ShiftSlotFormModal = ({ modalTitle, presets, onSubmit, onClose }) => {
           <div className="form-group">
             <label>Required Staff</label>
             <input type="number" min="1" max="50" value={form.required_staff} onChange={e => setForm(p => ({ ...p, required_staff: parseInt(e.target.value) || 1 }))} required />
-          </div>
-          <div className="form-group">
-            <label className="checkbox-label">
-              <input type="checkbox" checked={form.needs_shift_manager} onChange={e => setForm(p => ({ ...p, needs_shift_manager: e.target.checked }))} />
-              Requires a Shift Manager
-            </label>
           </div>
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>

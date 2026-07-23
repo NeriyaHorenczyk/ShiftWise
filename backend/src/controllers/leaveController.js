@@ -126,10 +126,23 @@ export const reviewLeaveRequest = async (req, res) => {
       }
     }
 
+    // don't approve leave over dates the employee is already scheduled to work
+    if (action === 'approve') {
+      const [conflicts] = await pool.query(
+        `SELECT s.id FROM shifts s
+         JOIN shift_assignments sa ON sa.shift_id = s.id
+         WHERE sa.user_id = ? AND s.status = 'published'
+           AND DATE(s.start_time) <= ? AND DATE(s.end_time) >= ?`,
+        [leave.user_id, leave.end_date, leave.start_date]
+      );
+      if (conflicts.length > 0)
+        return res.status(409).json({ error: 'Cannot approve leave: employee is currently scheduled for shifts during this period.' });
+    }
+
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
 
     await pool.query(
-      `UPDATE leave_requests 
+      `UPDATE leave_requests
        SET status = ?, reviewed_by = ?, lead_comment = ?
        WHERE id = ?`,
       [newStatus, req.user.id, lead_comment || null, id]

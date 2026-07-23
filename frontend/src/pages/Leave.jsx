@@ -197,7 +197,7 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
         <div className="leave-review">
           {!showReviewForm ? (
             <button className="btn btn-secondary btn-sm" onClick={() => setShowReviewForm(true)}>
-              Review
+              Treatment
             </button>
           ) : (
             <div className="review-form">

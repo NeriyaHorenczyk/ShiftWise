@@ -92,7 +92,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="dashboard-grid">
+      <div className={`dashboard-grid ${isLead ? 'dashboard-grid-2' : ''}`}>
         {/* Upcoming shifts */}
         <div className="dashboard-card">
           <div className="card-header">
@@ -148,33 +148,35 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Pending leave requests */}
-        <div className="dashboard-card">
-          <div className="card-header">
-            <h3>Pending leave</h3>
-            <button className="card-link" onClick={() => navigate('/leave')}>
-              View all
-            </button>
-          </div>
-          {pendingLeave.length === 0 ? (
-            <p className="empty-state">No pending leave requests</p>
-          ) : (
-            <div className="list">
-              {pendingLeave.map(leave => (
-                <div key={leave.id} className="list-item">
-                  <div className="list-item-main">
-                    <span className="list-item-title">{leave.user_name}</span>
-                    <span className="list-item-sub">
-                      {new Date(leave.start_date).toLocaleDateString()} —{' '}
-                      {new Date(leave.end_date).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <span className="badge badge-pending">pending</span>
-                </div>
-              ))}
+        {/* Pending leave requests — not relevant for a lead's own dashboard */}
+        {!isLead && (
+          <div className="dashboard-card">
+            <div className="card-header">
+              <h3>Pending leave</h3>
+              <button className="card-link" onClick={() => navigate('/leave')}>
+                View all
+              </button>
             </div>
-          )}
-        </div>
+            {pendingLeave.length === 0 ? (
+              <p className="empty-state">No pending leave requests</p>
+            ) : (
+              <div className="list">
+                {pendingLeave.map(leave => (
+                  <div key={leave.id} className="list-item">
+                    <div className="list-item-main">
+                      <span className="list-item-title">{leave.user_name}</span>
+                      <span className="list-item-sub">
+                        {new Date(leave.start_date).toLocaleDateString()} —{' '}
+                        {new Date(leave.end_date).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <span className="badge badge-pending">pending</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

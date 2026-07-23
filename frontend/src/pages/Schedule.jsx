@@ -19,13 +19,18 @@ import {
 } from 'react-icons/lu';
 import ConfirmModal from '../components/ConfirmModal';
 import WeekTimeGrid from '../components/WeekTimeGrid';
-import { splitIntoDaySegments, layoutColumns, eventBlockStyle } from '../utils/weekGridUtils';
+import { splitIntoDaySegments, layoutColumns, eventBlockStyle, getSlotForHour, HOUR_HEIGHT } from '../utils/weekGridUtils';
+
+// Shift blocks under ~1.5h were getting their status badge clipped —
+// floor the visual height so title/time/badge always have room to render.
+const SHIFT_EVENT_MIN_HEIGHT = 61;
+const SHIFT_EVENT_MIN_DURATION_HOURS = SHIFT_EVENT_MIN_HEIGHT / HOUR_HEIGHT;
 
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
 
   const canEdit = isLead;
-  const canPickDept = isAdmin || isLead;
+  const canPickDept = isAdmin;
 
   const [weekStart, setWeekStart] = useState(getWeekStart());
   const [departments, setDepartments] = useState([]);
@@ -44,7 +49,7 @@ const Schedule = () => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [bulkMessage, setBulkMessage] = useState('');
+  const [bulkMessages, setBulkMessages] = useState([]); // [{ text, type }]
 
   const weekDays = getWeekDays(weekStart);
 
@@ -113,7 +118,7 @@ const Schedule = () => {
         }
       });
     });
-    return layoutColumns(segments);
+    return layoutColumns(segments, SHIFT_EVENT_MIN_DURATION_HOURS);
   };
 
   const handleDayClick = (day) => {
@@ -178,14 +183,14 @@ const Schedule = () => {
 
   const handleBulkClear = async () => {
     setBulkLoading(true);
-    setBulkMessage('');
+    setBulkMessages([]);
     try {
       const { deleted } = await api.bulkClearShifts({
         department_id: selectedDept,
         week_start: toDateString(weekStart),
       });
       await refreshShifts();
-      setBulkMessage(`Cleared ${deleted} draft shift${deleted !== 1 ? 's' : ''}.`);
+      setBulkMessages([{ text: `Cleared ${deleted} draft shift${deleted !== 1 ? 's' : ''}.`, type: 'success' }]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -196,20 +201,28 @@ const Schedule = () => {
 
   const handleAutoAssign = async () => {
     setBulkLoading(true);
-    setBulkMessage('');
+    setBulkMessages([]);
     try {
       const result = await api.autoAssignShifts({
         department_id: selectedDept,
         week_start: toDateString(weekStart),
       });
       await refreshShifts();
+      const messages = [];
       if (result.assigned > 0) {
         const base = `Auto-assigned ${result.assigned} employee slot${result.assigned !== 1 ? 's' : ''} across draft shifts.`;
         const warn = result.noAvailability ? ' No availability was submitted — employees were distributed evenly.' : '';
-        setBulkMessage(base + warn);
-      } else {
-        setBulkMessage(result.message);
+        messages.push({ text: base + warn, type: 'success' });
       }
+      if (result.failures?.length > 0) {
+        result.failures.forEach(f => {
+          messages.push({ text: `"${f.title}" was not auto-assigned: ${f.reason}.`, type: 'warning' });
+        });
+      }
+      if (messages.length === 0) {
+        messages.push({ text: result.message || 'No changes made.', type: 'success' });
+      }
+      setBulkMessages(messages);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -219,17 +232,22 @@ const Schedule = () => {
 
   const handleBulkPublish = async () => {
     setBulkLoading(true);
-    setBulkMessage('');
+    setBulkMessages([]);
     try {
       const { published, skipped } = await api.bulkPublishShifts({
         department_id: selectedDept,
         week_start: toDateString(weekStart),
       });
       await refreshShifts();
-      const msg = skipped > 0
-        ? `Published ${published} shift${published !== 1 ? 's' : ''}. ${skipped} skipped (no staff assigned).`
-        : `Published ${published} shift${published !== 1 ? 's' : ''}.`;
-      setBulkMessage(msg);
+      if (skipped > 0) {
+        setBulkMessages([{
+          text: `Published ${published} shift${published !== 1 ? 's' : ''}. ` +
+            `${skipped} shift${skipped !== 1 ? 's' : ''} could not be published because no workers are assigned.`,
+          type: 'warning',
+        }]);
+      } else {
+        setBulkMessages([{ text: `Published ${published} shift${published !== 1 ? 's' : ''}.`, type: 'success' }]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -239,14 +257,14 @@ const Schedule = () => {
 
   const handleBulkUnpublish = async () => {
     setBulkLoading(true);
-    setBulkMessage('');
+    setBulkMessages([]);
     try {
       const { unpublished } = await api.bulkUnpublishShifts({
         department_id: selectedDept,
         week_start: toDateString(weekStart),
       });
       await refreshShifts();
-      setBulkMessage(`Unpublished ${unpublished} shift${unpublished !== 1 ? 's' : ''}.`);
+      setBulkMessages([{ text: `Unpublished ${unpublished} shift${unpublished !== 1 ? 's' : ''}.`, type: 'success' }]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -257,13 +275,14 @@ const Schedule = () => {
 
   const draftCount = shifts.filter(s => s.status === 'draft').length;
   const publishedCount = shifts.filter(s => s.status === 'published').length;
+  const currentDeptName = departments.find(d => d.id === selectedDept)?.name;
 
   return (
     <div className="page page-wide">
       <div className="page-header">
         <h2>Schedule</h2>
         <p className="page-subtitle">
-          {formatWeekRange(weekStart)}
+          {isLead && currentDeptName ? `${currentDeptName} · ` : ''}{formatWeekRange(weekStart)}
         </p>
       </div>
 
@@ -334,9 +353,15 @@ const Schedule = () => {
         )}
       </div>
 
-      {bulkMessage && (
-        <div className="success-message" style={{ marginBottom: '1rem' }}>{bulkMessage}</div>
-      )}
+      {bulkMessages.map((m, i) => (
+        <div
+          key={i}
+          className={m.type === 'warning' ? 'warning-message' : 'success-message'}
+          style={{ marginBottom: '0.5rem' }}
+        >
+          {m.text}
+        </div>
+      ))}
 
       {error && <div className="page-error">{error}</div>}
 
@@ -358,7 +383,7 @@ const Schedule = () => {
               <div
                 key={`${shift.id}-${seg.startHour}`}
                 className={`tg-event ${statusClass} ${canEdit ? 'clickable' : ''}`}
-                style={eventBlockStyle(seg)}
+                style={eventBlockStyle(seg, SHIFT_EVENT_MIN_HEIGHT)}
                 onClick={canEdit ? (e => handleShiftClick(e, shift)) : undefined}
                 title={`${shift.title} · ${formatTime(shift.start_time)} – ${formatTime(shift.end_time)}`}
               >
@@ -367,8 +392,11 @@ const Schedule = () => {
                   {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
                 </div>
                 <div className="tg-event-meta">
-                  <LuUsers size={11} />
-                  {shift.assigned_count}/{shift.required_staff}
+                  <span className="tg-event-staff">
+                    <LuUsers size={11} />
+                    {shift.assigned_count}/{shift.required_staff}
+                  </span>
+                  <span className={`badge badge-${shift.status}`}>{shift.status}</span>
                 </div>
               </div>
             );
@@ -555,8 +583,14 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
 // ── Shift Detail Modal ──────────────────────────────
 const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose, onPublish, onUnpublish, onDelete, onAssigned }) => {
   const [shift, setShift] = useState(initialShift);
+  // Local staging area for assign/unassign clicks — nothing is persisted to the
+  // server until Save or Publish is clicked, so closing the modal any other way
+  // discards pending changes for free (we simply never wrote them anywhere).
+  const [pendingAssignments, setPendingAssignments] = useState(initialShift.assignments || []);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [unavailableUsernames, setUnavailableUsernames] = useState(new Set());
+  const [onLeaveUsernames, setOnLeaveUsernames] = useState(new Set());
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -567,8 +601,33 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
           api.getUsers(),
         ]);
         setShift(detail);
+        setPendingAssignments(detail.assignments || []);
         setTeamMembers(users.filter(u =>
           u.role === 'employee' || u.role === 'shift_manager' && u.department_id === departmentId
+        ));
+
+        // figure out which candidates are unavailable for this shift's slot,
+        // or on approved leave that day, so they can be filtered out below
+        const shiftDate = new Date(detail.start_time);
+        const dayOfWeek = shiftDate.getDay();
+        const slot = getSlotForHour(shiftDate.getHours());
+        const shiftDateStr = toDateString(shiftDate);
+        const weekStartStr = toDateString(getWeekStart(shiftDate));
+
+        const [teamAvail, leaveRequests] = await Promise.all([
+          api.getTeamAvailability({ week_start: weekStartStr }),
+          api.getLeave(),
+        ]);
+
+        setUnavailableUsernames(new Set(
+          teamAvail
+            .filter(a => a.day_of_week === dayOfWeek && a.slot === slot && a.status === 'unavailable')
+            .map(a => a.username)
+        ));
+        setOnLeaveUsernames(new Set(
+          leaveRequests
+            .filter(l => l.status === 'approved' && l.start_date <= shiftDateStr && l.end_date >= shiftDateStr)
+            .map(l => l.username)
         ));
       } catch (err) {
         setError(err.message);
@@ -577,38 +636,64 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
     loadDetail();
   }, [departmentId, shift.id]);
 
-  const handleAssign = async (userId, isShiftManager) => {
-    setLoading(true);
+  const handleAssign = (member, isShiftManager) => {
+    setError('');
+    setPendingAssignments(prev => [...prev, {
+      user_id: member.id,
+      username: member.username,
+      name: member.name,
+      is_shift_manager: isShiftManager ? 1 : 0,
+    }]);
+  };
+
+  const handleUnassign = (username) => {
+    setError('');
+    setPendingAssignments(prev => prev.filter(a => a.username !== username));
+  };
+
+  // Diffs pendingAssignments against the last known server state and persists
+  // only the delta (adds/removes), then refreshes both the server-truth
+  // `shift` and the pending staging list from the result.
+  const handleSaveChanges = async () => {
+    setSaving(true);
+    setError('');
     try {
-      await api.assignEmployee(shift.id, { user_id: userId, is_shift_manager: isShiftManager });
+      const original = shift.assignments || [];
+      const originalUsernames = new Set(original.map(a => a.username));
+      const pendingUsernames = new Set(pendingAssignments.map(a => a.username));
+
+      const toRemove = original.filter(a => !pendingUsernames.has(a.username));
+      const toAdd = pendingAssignments.filter(a => !originalUsernames.has(a.username));
+
+      for (const a of toRemove) {
+        const member = teamMembers.find(u => u.username === a.username);
+        if (member) await api.unassignEmployee(shift.id, member.id);
+      }
+      for (const a of toAdd) {
+        await api.assignEmployee(shift.id, { user_id: a.user_id, is_shift_manager: !!a.is_shift_manager });
+      }
+
       const detail = await api.getShiftById(shift.id);
       setShift(detail);
+      setPendingAssignments(detail.assignments || []);
       onAssigned(detail);
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  const handleUnassign = async (username) => {
-    const member = teamMembers.find(u => u.username === username);
-    if (!member) return;
-    setLoading(true);
-    try {
-      await api.unassignEmployee(shift.id, member.id);
-      const detail = await api.getShiftById(shift.id);
-      setShift(detail);
-      onAssigned(detail);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const assignedUsernames = shift.assignments?.map(a => a.username) || [];
-  const unassigned = teamMembers.filter(u => !assignedUsernames.includes(u.username));
+  const assignedUsernames = pendingAssignments.map(a => a.username);
+  const unassigned = teamMembers.filter(u =>
+    !assignedUsernames.includes(u.username) &&
+    !unavailableUsernames.has(u.username) &&
+    !onLeaveUsernames.has(u.username)
+  );
+  const atCapacity = pendingAssignments.length >= shift.required_staff;
+  const hasShiftManagerPending = pendingAssignments.some(a => a.is_shift_manager === 1 || a.is_shift_manager === true);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -626,16 +711,16 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
         <div className="shift-detail-body">
           {/* Assigned employees */}
           <div className="shift-detail-section">
-            <h4>Assigned ({shift.assignments?.length || 0}/{shift.required_staff})</h4>
-            {shift.assignments?.length === 0 ? (
+            <h4>Assigned ({pendingAssignments.length}/{shift.required_staff})</h4>
+            {pendingAssignments.length === 0 ? (
               <p className="empty-state">No employees assigned yet</p>
             ) : (
               <div className="assigned-list">
-                {shift.assignments?.map(a => (
+                {pendingAssignments.map(a => (
                   <div key={a.username} className="assigned-item">
                     <div className="assigned-item-info">
                       <span className="assigned-name">{a.name}</span>
-                      {a.is_shift_manager === 1 && (
+                      {(a.is_shift_manager === 1 || a.is_shift_manager === true) && (
                         <span className="sm-badge">SM</span>
                       )}
                     </div>
@@ -658,6 +743,11 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
           {canEdit && shift.status === 'draft' && unassigned.length > 0 && (
             <div className="shift-detail-section">
               <h4>Add from team</h4>
+              {atCapacity && (
+                <p className="empty-state">
+                  Shift is at full capacity ({pendingAssignments.length}/{shift.required_staff}). Remove someone to add another.
+                </p>
+              )}
               <div className="unassigned-list">
                 {unassigned.map(u => (
                   <div key={u.username} className="unassigned-item">
@@ -666,17 +756,18 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
                       {u.role === 'shift_manager' && (
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={() => handleAssign(u.id, true)}
-                          disabled={loading}
-                          title="Assign as shift manager"
+                          onClick={() => handleAssign(u, true)}
+                          disabled={atCapacity || hasShiftManagerPending}
+                          title={hasShiftManagerPending ? 'A shift manager is already assigned' : 'Assign as shift manager'}
                         >
                           as SM
                         </button>
                       )}
                       <button
                         className="btn btn-primary btn-sm"
-                        onClick={() => handleAssign(u.id, false)}
-                        disabled={loading}
+                        onClick={() => handleAssign(u, false)}
+                        disabled={atCapacity}
+                        title={atCapacity ? 'Shift is at full capacity' : undefined}
                       >
                         <LuPlus size={14} />
                       </button>
@@ -692,27 +783,40 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
 
           {canEdit && (
             <div className="modal-actions">
-              <button className="btn btn-danger" onClick={onDelete}>
+              <button className="btn btn-danger" onClick={onDelete} disabled={saving}>
                 Delete
               </button>
               {shift.status === 'draft' && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    const hasShiftManager = shift.assignments?.some(a => a.is_shift_manager === 1);
-                    if (!hasShiftManager) {
-                      setError('Cannot publish — assign a shift manager first.');
-                      return;
-                    }
-                    onPublish();
-                  }}
-                  disabled={!shift.assignments?.length}
-                >
-                  Publish
-                </button>
+                <>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => { if (await handleSaveChanges()) onClose(); }}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      if (pendingAssignments.length === 0) {
+                        setError('Cannot publish a shift with no assigned workers.');
+                        return;
+                      }
+                      if (!hasShiftManagerPending) {
+                        setError('Cannot publish — assign a shift manager first.');
+                        return;
+                      }
+                      setError('');
+                      if (await handleSaveChanges()) onPublish();
+                    }}
+                    disabled={saving}
+                  >
+                    Publish
+                  </button>
+                </>
               )}
               {shift.status === 'published' && (
-                <button className="btn btn-secondary" onClick={onUnpublish}>
+                <button className="btn btn-secondary" onClick={onUnpublish} disabled={saving}>
                   Unpublish
                 </button>
               )}

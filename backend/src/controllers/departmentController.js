@@ -80,11 +80,19 @@ export const createDepartment = async (req, res) => {
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, lead_id } = req.body;
+    let { name, lead_id } = req.body;
 
-    const [departments] = await pool.query('SELECT id FROM departments WHERE id = ?', [id]);
+    const [departments] = await pool.query('SELECT id, lead_id FROM departments WHERE id = ?', [id]);
     if (departments.length === 0)
       return res.status(404).json({ error: 'Department not found.' });
+
+    // leads can only rename their own department — not reassign leadership
+    if (req.user.role === 'lead') {
+      if (departments[0].lead_id !== req.user.id)
+        return res.status(403).json({ error: 'You can only update your own department.' });
+      lead_id = undefined;
+      delete req.body.lead_id;
+    }
 
     if (name !== undefined && name.trim()) {
       const [existing] = await pool.query(
