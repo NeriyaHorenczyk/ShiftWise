@@ -1,5 +1,11 @@
 const BASE_URL = 'http://localhost:3000';
 
+// Every uploaded avatar/document is served from a stable, content-addressed
+// URL (see backend/src/middleware/upload.middleware.js — filenames are
+// UUIDs, never reused), so this is the single place components should build
+// that URL from, instead of each one re-templating BASE_URL separately.
+export const getAssetUrl = (path) => (path ? `${BASE_URL}${path}` : null);
+
 const promiseCache = new Map();
 
 export const clearApiCache = () => {
@@ -32,13 +38,16 @@ const request = async (endpoint, options = {}) => {
         headers,
       });
 
-      const data = await response.json();
+      const body = await response.json();
 
+      // Every backend response now follows the { status, message, data }
+      // envelope (see backend/src/utils/response.js) — unwrap to the inner
+      // payload so callers keep working with plain data, same as before.
       if (!response.ok) {
-        throw new Error(data.error || 'Something went wrong.');
+        throw new Error(body.message || 'Something went wrong.');
       }
 
-      return data;
+      return body.data;
     } catch (err) {
       if (isGet) promiseCache.delete(cacheKey);
       throw err;
@@ -55,6 +64,9 @@ const request = async (endpoint, options = {}) => {
 };
 
 export const api = {
+  // Dashboard
+  getDashboard: () => request('/dashboard'),
+
   // Auth
   register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
@@ -98,8 +110,15 @@ export const api = {
 
   // Availability
   getAvailability: (params = {}) => {
-    const query = new URLSearchParams({ ...params, _t: Date.now() }).toString();
-    return request(`/availability?${query}`);
+    // No cache-busting param here on purpose: it defeated request()'s own
+    // in-flight dedup (two calls with different `_t` values look like two
+    // different requests), which is what caused this endpoint specifically
+    // to double-fire under StrictMode's dev-only double-effect-invoke while
+    // every other GET on this page correctly deduped to one real request.
+    // Freshness after a save is already guaranteed — any mutation clears the
+    // whole promise cache (see clearApiCache / the non-GET branch below).
+    const query = new URLSearchParams(params).toString();
+    return request(`/availability${query ? `?${query}` : ''}`);
   },
   getTeamAvailability: (params = {}) => {
     const query = new URLSearchParams(params).toString();

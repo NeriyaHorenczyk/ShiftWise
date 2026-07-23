@@ -2,6 +2,7 @@ import pool from '../../db/connection.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { created, success, conflict, unauthorized, serverError } from '../utils/response.js';
 
 export const register = async (req, res) => {
   try {
@@ -12,7 +13,7 @@ export const register = async (req, res) => {
       [username, email]
     );
     if (existing.length > 0)
-      return res.status(409).json({ error: 'Username or email already taken.' });
+      return conflict(res, 'Username or email already taken.');
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = uuidv4();
@@ -26,9 +27,9 @@ export const register = async (req, res) => {
       [userId, hashedPassword]
     );
 
-    res.status(201).json({ message: 'User registered successfully.', username });
+    created(res, { username }, 'User registered successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -41,12 +42,12 @@ export const login = async (req, res) => {
       [username]
     );
     if (users.length === 0)
-      return res.status(401).json({ error: 'Invalid username or password.' });
+      return unauthorized(res, 'Invalid username or password.');
 
     const user = users[0];
     const match = await bcrypt.compare(password, user.hashed);
     if (!match)
-      return res.status(401).json({ error: 'Invalid username or password.' });
+      return unauthorized(res, 'Invalid username or password.');
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
@@ -54,8 +55,7 @@ export const login = async (req, res) => {
       { expiresIn: '1d' }
     );
 
-    res.json({
-      message: 'Login successful.',
+    success(res, {
       token,
       user: {
         id: user.id,
@@ -67,8 +67,8 @@ export const login = async (req, res) => {
         avatar_url: user.avatar_url,
         created_at: user.created_at
       }
-    });
+    }, 'Login successful.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

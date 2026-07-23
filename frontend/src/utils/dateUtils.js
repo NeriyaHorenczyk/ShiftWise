@@ -50,3 +50,57 @@ export const isSameDay = (date1, date2) => {
 
 // Check if a date is today
 export const isToday = (date) => isSameDay(date, new Date());
+
+// Get the 1st of the month for a given date
+export const getMonthStart = (date = new Date()) => {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Shift a date forward/backward by whole months, landing on the 1st
+export const addMonths = (date, count) => {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setMonth(d.getMonth() + count);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Full calendar grid for a month: weeks (Sun-Sat) of Date objects, padded
+// with the tail of the previous month and the head of the next so every
+// row has 7 days — the days outside the target month are still returned
+// (flagged via isSameMonth) so a real calendar renders no gaps.
+export const getMonthGridWeeks = (monthStart) => {
+  const firstCell = new Date(monthStart);
+  firstCell.setDate(firstCell.getDate() - firstCell.getDay());
+
+  const monthEnd = new Date(monthStart);
+  monthEnd.setMonth(monthEnd.getMonth() + 1);
+  monthEnd.setDate(0); // last day of target month
+
+  const lastCell = new Date(monthEnd);
+  lastCell.setDate(lastCell.getDate() + (6 - monthEnd.getDay()));
+
+  const weeks = [];
+  let cursor = new Date(firstCell);
+  while (cursor <= lastCell) {
+    const week = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(cursor);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+    weeks.push(week);
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return weeks;
+};
+
+// Format a month for display e.g. "July 2026"
+export const formatMonthLabel = (date) => {
+  return date.toLocaleDateString('en-IL', { month: 'long', year: 'numeric' });
+};
+
+export const isSameMonth = (date1, date2) =>
+  date1.getFullYear() === date2.getFullYear() && date1.getMonth() === date2.getMonth();

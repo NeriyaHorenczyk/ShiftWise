@@ -1,11 +1,12 @@
 import pool from '../../db/connection.js';
+import { success, noData, validationError, serverError } from '../utils/response.js';
 
 export const getShiftCoverage = async (req, res) => {
   try {
     const { from, to, department_id } = req.query;
 
     if (!from || !to) {
-      return res.status(400).json({ error: 'from and to date parameters are required.' });
+      return validationError(res, 'from and to date parameters are required.');
     }
 
     const conditions = ['s.status = ?', 'DATE(s.start_time) >= ?', 'DATE(s.start_time) <= ?'];
@@ -39,9 +40,10 @@ export const getShiftCoverage = async (req, res) => {
     `;
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No shift coverage data found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -50,7 +52,7 @@ export const getEmployeeStats = async (req, res) => {
     const { from, to, department_id } = req.query;
 
     if (!from || !to) {
-      return res.status(400).json({ error: 'from and to date parameters are required.' });
+      return validationError(res, 'from and to date parameters are required.');
     }
 
     const whereConditions = ["u.role IN ('employee', 'shift_manager')"];
@@ -98,9 +100,10 @@ export const getEmployeeStats = async (req, res) => {
     `;
 
     const [rows] = await pool.query(query, allParams);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No employee stats found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -109,7 +112,7 @@ export const getLeaveReport = async (req, res) => {
     const { from, to, department_id } = req.query;
 
     if (!from || !to) {
-      return res.status(400).json({ error: 'from and to date parameters are required.' });
+      return validationError(res, 'from and to date parameters are required.');
     }
 
     // overlapping date range: leave overlaps [from,to] if start <= to AND end >= from
@@ -145,8 +148,9 @@ export const getLeaveReport = async (req, res) => {
     `;
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No leave report data found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

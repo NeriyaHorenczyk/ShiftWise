@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, swapApprovedEmail } from '../utils/email.js';
+import { success, created, updated, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -46,9 +47,10 @@ export const getSwaps = async (req, res) => {
     query += ' ORDER BY sr.created_at DESC';
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No swap requests found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -57,10 +59,10 @@ export const createSwap = async (req, res) => {
     const { target_username, shift_id } = req.body;
 
     if (!target_username || !shift_id)
-      return res.status(400).json({ error: 'target_username and shift_id are required.' });
+      return validationError(res, 'target_username and shift_id are required.');
 
     if (target_username === req.user.username)
-      return res.status(400).json({ error: 'You cannot request a swap with yourself.' });
+      return validationError(res, 'You cannot request a swap with yourself.');
 
     // verify the shift exists and is published
     const [shifts] = await pool.query(
@@ -68,9 +70,9 @@ export const createSwap = async (req, res) => {
       [shift_id]
     );
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
     if (shifts[0].status !== 'published')
-      return res.status(400).json({ error: 'You can only swap published shifts.' });
+      return validationError(res, 'You can only swap published shifts.');
 
     // verify requester is actually assigned to this shift
     const [assignment] = await pool.query(
@@ -78,7 +80,7 @@ export const createSwap = async (req, res) => {
       [shift_id, req.user.id]
     );
     if (assignment.length === 0)
-      return res.status(403).json({ error: 'You are not assigned to this shift.' });
+      return forbidden(res, 'You are not assigned to this shift.');
 
     // resolve target_username to a user record
     const [targets] = await pool.query(
@@ -86,9 +88,9 @@ export const createSwap = async (req, res) => {
       [target_username]
     );
     if (targets.length === 0)
-      return res.status(404).json({ error: 'Target user not found.' });
+      return notFound(res, 'Target user not found.');
     if (targets[0].department_id !== shifts[0].department_id)
-      return res.status(400).json({ error: 'You can only swap with employees in the same department.' });
+      return validationError(res, 'You can only swap with employees in the same department.');
 
     // can't request a swap with someone already assigned to this shift
     const [targetAssignment] = await pool.query(
@@ -96,7 +98,7 @@ export const createSwap = async (req, res) => {
       [shift_id, targets[0].id]
     );
     if (targetAssignment.length > 0)
-      return res.status(400).json({ error: 'This employee is already assigned to this shift.' });
+      return validationError(res, 'This employee is already assigned to this shift.');
 
     // if requester is acting as shift manager in this shift,
     // target must also be a shift_manager
@@ -106,21 +108,21 @@ export const createSwap = async (req, res) => {
     );
 
     if (requesterAssignment[0].is_shift_manager && targets[0].role !== 'shift_manager')
-      return res.status(400).json({ error: 'You are acting as shift manager in this shift. You can only swap with another shift manager.' });
+      return validationError(res, 'You are acting as shift manager in this shift. You can only swap with another shift manager.');
 
     // regular requesters can swap with another employee or a shift manager,
     // but not with department leadership (lead/admin)
     if (!requesterAssignment[0].is_shift_manager && ['lead', 'admin'].includes(targets[0].role))
-      return res.status(400).json({ error: 'You cannot request a swap with an employee in a managerial position.' });
+      return validationError(res, 'You cannot request a swap with an employee in a managerial position.');
 
     // check no pending swap already exists for this shift by this requester
     const [existing] = await pool.query(
-      `SELECT id FROM swap_requests 
+      `SELECT id FROM swap_requests
        WHERE shift_id = ? AND requester_id = ? AND status = 'pending'`,
       [shift_id, req.user.id]
     );
     if (existing.length > 0)
-      return res.status(409).json({ error: 'You already have a pending swap request for this shift.' });
+      return conflict(res, 'You already have a pending swap request for this shift.');
 
     const id = uuidv4();
     await pool.query(
@@ -129,9 +131,9 @@ export const createSwap = async (req, res) => {
       [id, req.user.id, targets[0].id, shift_id]
     );
 
-    res.status(201).json({ message: 'Swap request created successfully.', id });
+    created(res, { id }, 'Swap request created successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -141,23 +143,23 @@ export const respondToSwap = async (req, res) => {
     const { action } = req.body; // 'accept' or 'reject'
 
     if (!['accept', 'reject'].includes(action))
-      return res.status(400).json({ error: 'action must be accept or reject.' });
+      return validationError(res, 'action must be accept or reject.');
 
     const [swaps] = await pool.query(
       'SELECT * FROM swap_requests WHERE id = ?',
       [id]
     );
     if (swaps.length === 0)
-      return res.status(404).json({ error: 'Swap request not found.' });
+      return notFound(res, 'Swap request not found.');
 
     const swap = swaps[0];
 
     // only the target employee can respond
     if (swap.target_id !== req.user.id)
-      return res.status(403).json({ error: 'Only the target employee can respond to this request.' });
+      return forbidden(res, 'Only the target employee can respond to this request.');
 
     if (swap.status !== 'pending')
-      return res.status(400).json({ error: 'This swap request is no longer pending.' });
+      return validationError(res, 'This swap request is no longer pending.');
 
     const newStatus = action === 'accept' ? 'accepted' : 'rejected';
     await pool.query(
@@ -165,9 +167,9 @@ export const respondToSwap = async (req, res) => {
       [newStatus, id]
     );
 
-    res.json({ message: `Swap request ${newStatus}.` });
+    updated(res, null, `Swap request ${newStatus}.`);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -177,19 +179,19 @@ export const approveSwap = async (req, res) => {
     const { action, lead_comment } = req.body; // 'approve' or 'reject'
 
     if (!['approve', 'reject'].includes(action))
-      return res.status(400).json({ error: 'action must be approve or reject.' });
+      return validationError(res, 'action must be approve or reject.');
 
     const [swaps] = await pool.query(
       'SELECT * FROM swap_requests WHERE id = ?',
       [id]
     );
     if (swaps.length === 0)
-      return res.status(404).json({ error: 'Swap request not found.' });
+      return notFound(res, 'Swap request not found.');
 
     const swap = swaps[0];
 
     if (swap.status !== 'accepted')
-      return res.status(400).json({ error: 'You can only approve a swap that has been accepted by both employees.' });
+      return validationError(res, 'You can only approve a swap that has been accepted by both employees.');
 
     if (action === 'approve') {
       // execute the swap — remove requester, add target
@@ -228,8 +230,8 @@ export const approveSwap = async (req, res) => {
       ]);
     }
 
-    res.json({ message: `Swap request ${newStatus}.` });
+    updated(res, null, `Swap request ${newStatus}.`);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

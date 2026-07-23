@@ -21,6 +21,7 @@ import {
 import useAuth from '../hooks/useAuth';
 import useTheme from '../hooks/useTheme';
 import ConfirmModal from './ConfirmModal';
+import { getAssetUrl } from '../services/api';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LuLayoutDashboard },
@@ -73,7 +74,7 @@ const Layout = ({ children }) => {
           <div className="user-info">
             <div className="user-avatar">
               {currentUser?.avatar_url ? (
-                <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
+                <img src={getAssetUrl(currentUser.avatar_url)} alt={currentUser.name} />
               ) : (
                 <span>{currentUser?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
               )}

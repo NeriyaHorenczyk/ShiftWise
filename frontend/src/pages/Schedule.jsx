@@ -9,22 +9,28 @@ import {
   formatTime,
   formatWeekRange,
   isToday,
+  getMonthStart,
+  addMonths,
+  getMonthGridWeeks,
+  formatMonthLabel,
 } from '../utils/dateUtils';
 import {
-  LuChevronLeft,
-  LuChevronRight,
   LuPlus,
   LuUsers,
   LuX,
 } from 'react-icons/lu';
 import ConfirmModal from '../components/ConfirmModal';
 import WeekTimeGrid from '../components/WeekTimeGrid';
-import { splitIntoDaySegments, layoutColumns, eventBlockStyle, getSlotForHour, HOUR_HEIGHT } from '../utils/weekGridUtils';
-
-// Shift blocks under ~1.5h were getting their status badge clipped —
-// floor the visual height so title/time/badge always have room to render.
-const SHIFT_EVENT_MIN_HEIGHT = 61;
-const SHIFT_EVENT_MIN_DURATION_HOURS = SHIFT_EVENT_MIN_HEIGHT / HOUR_HEIGHT;
+import MonthGrid from '../components/MonthGrid';
+import CalendarNav from '../components/CalendarNav';
+import {
+  splitIntoDaySegments,
+  layoutColumns,
+  eventBlockStyle,
+  getSlotForHour,
+  SHIFT_EVENT_MIN_HEIGHT,
+  SHIFT_EVENT_MIN_DURATION_HOURS,
+} from '../utils/weekGridUtils';
 
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
@@ -32,7 +38,11 @@ const Schedule = () => {
   const canEdit = isLead;
   const canPickDept = isAdmin;
 
-  const [weekStart, setWeekStart] = useState(getWeekStart());
+  const [viewMode, setViewMode] = useState('week'); // 'week' | 'month'
+  // A single anchor date drives both views, so switching between Week and
+  // Month never resets the currently-selected date/time window — each view
+  // just derives its own window (week/month) from wherever the anchor is.
+  const [anchorDate, setAnchorDate] = useState(new Date());
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
   const [shifts, setShifts] = useState([]);
@@ -51,7 +61,10 @@ const Schedule = () => {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkMessages, setBulkMessages] = useState([]); // [{ text, type }]
 
+  const weekStart = getWeekStart(anchorDate);
+  const monthStart = getMonthStart(anchorDate);
   const weekDays = getWeekDays(weekStart);
+  const monthWeeks = getMonthGridWeeks(monthStart);
 
   // load departments
   useEffect(() => {
@@ -75,16 +88,31 @@ const Schedule = () => {
     loadDepts();
   }, [isLead, isAdmin, currentUser]);
 
-  // load shifts when week or department changes
+  // Fetches shifts for whatever window the current view actually displays —
+  // the full padded month range in month view, or the plain 7-day window in
+  // week view — so callers never have to know which view is active.
+  const fetchShiftsForCurrentView = async () => {
+    if (viewMode === 'month') {
+      const weeks = getMonthGridWeeks(getMonthStart(anchorDate));
+      return api.getShifts({
+        department_id: selectedDept,
+        start_date: toDateString(weeks[0][0]),
+        end_date: toDateString(weeks[weeks.length - 1][6]),
+      });
+    }
+    return api.getShifts({
+      department_id: selectedDept,
+      week_start: toDateString(getWeekStart(anchorDate)),
+    });
+  };
+
+  // load shifts when the view, date, or department changes
   useEffect(() => {
     if (!selectedDept) return;
     const loadShifts = async () => {
       setLoading(true);
       try {
-        const data = await api.getShifts({
-          department_id: selectedDept,
-          week_start: toDateString(weekStart),
-        });
+        const data = await fetchShiftsForCurrentView();
         setShifts(data);
       } catch (err) {
         setError(err.message);
@@ -93,21 +121,28 @@ const Schedule = () => {
       }
     };
     loadShifts();
-  }, [selectedDept, weekStart]);
+    // anchorDate.getTime() (a primitive) is the real dependency here — the
+    // weekStart/monthStart derived above get fresh Date identities every
+    // render and must not be listed instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDept, viewMode, anchorDate.getTime()]);
 
-  const prevWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() - 7);
-    setWeekStart(d);
-  };
+  const prevWeek = () => setAnchorDate(d => {
+    const n = new Date(d);
+    n.setDate(n.getDate() - 7);
+    return n;
+  });
 
-  const nextWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 7);
-    setWeekStart(d);
-  };
+  const nextWeek = () => setAnchorDate(d => {
+    const n = new Date(d);
+    n.setDate(n.getDate() + 7);
+    return n;
+  });
 
-  const goToToday = () => setWeekStart(getWeekStart());
+  const prevMonth = () => setAnchorDate(d => addMonths(d, -1));
+  const nextMonth = () => setAnchorDate(d => addMonths(d, 1));
+
+  const goToToday = () => setAnchorDate(new Date());
 
   const getSegmentsForDay = (day) => {
     const segments = [];
@@ -119,6 +154,10 @@ const Schedule = () => {
       });
     });
     return layoutColumns(segments, SHIFT_EVENT_MIN_DURATION_HOURS);
+  };
+
+  const getShiftsForDay = (day) => {
+    return shifts.filter(shift => new Date(shift.start_time).toDateString() === day.toDateString());
   };
 
   const handleDayClick = (day) => {
@@ -136,11 +175,7 @@ const Schedule = () => {
   const handlePublish = async () => {
     try {
       await api.publishShift(selectedShift.id);
-      const data = await api.getShifts({
-        department_id: selectedDept,
-        week_start: toDateString(weekStart),
-      });
-      setShifts(data);
+      setShifts(await fetchShiftsForCurrentView());
       setShowPublishConfirm(false);
       setShowAssignModal(false);
     } catch (err) {
@@ -149,18 +184,14 @@ const Schedule = () => {
   };
 
   const handleUnpublish = async () => {
-  try {
-    await api.unpublishShift(selectedShift.id);
-    const data = await api.getShifts({
-      department_id: selectedDept,
-      week_start: toDateString(weekStart),
-    });
-    setShifts(data);
-    setShowAssignModal(false);
-  } catch (err) {
-    setError(err.message);
-  }
-};
+    try {
+      await api.unpublishShift(selectedShift.id);
+      setShifts(await fetchShiftsForCurrentView());
+      setShowAssignModal(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const handleDelete = async () => {
     try {
@@ -174,11 +205,7 @@ const Schedule = () => {
   };
 
   const refreshShifts = async () => {
-    const data = await api.getShifts({
-      department_id: selectedDept,
-      week_start: toDateString(weekStart),
-    });
-    setShifts(data);
+    setShifts(await fetchShiftsForCurrentView());
   };
 
   const handleBulkClear = async () => {
@@ -282,23 +309,22 @@ const Schedule = () => {
       <div className="page-header">
         <h2>Schedule</h2>
         <p className="page-subtitle">
-          {isLead && currentDeptName ? `${currentDeptName} · ` : ''}{formatWeekRange(weekStart)}
+          {isLead && currentDeptName ? `${currentDeptName} · ` : ''}
+          {viewMode === 'month' ? formatMonthLabel(monthStart) : formatWeekRange(weekStart)}
         </p>
       </div>
 
       {/* Controls */}
       <div className="schedule-controls">
-        <div className="week-nav">
-          <button className="btn btn-secondary icon-btn" onClick={prevWeek}>
-            <LuChevronLeft size={16} />
-          </button>
-          <button className="btn btn-secondary" onClick={goToToday}>
-            Today
-          </button>
-          <button className="btn btn-secondary icon-btn" onClick={nextWeek}>
-            <LuChevronRight size={16} />
-          </button>
-        </div>
+        <CalendarNav
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onPrevMonth={prevMonth}
+          onPrevWeek={prevWeek}
+          onToday={goToToday}
+          onNextWeek={nextWeek}
+          onNextMonth={nextMonth}
+        />
 
         {canPickDept && departments.length > 0 && (
           <select
@@ -312,7 +338,7 @@ const Schedule = () => {
           </select>
         )}
 
-        {canEdit && selectedDept && (draftCount > 0 || publishedCount > 0) && (
+        {viewMode === 'week' && canEdit && selectedDept && (draftCount > 0 || publishedCount > 0) && (
           <div className="bulk-actions">
             {draftCount > 0 && (
               <>
@@ -368,6 +394,28 @@ const Schedule = () => {
       {/* Grid */}
       {loading ? (
         <div className="page-loading">Loading schedule...</div>
+      ) : viewMode === 'month' ? (
+        <MonthGrid
+          monthStart={monthStart}
+          weeks={monthWeeks}
+          isToday={isToday}
+          renderDay={(day) => getShiftsForDay(day).map(shift => {
+            const statusClass = shift.status === 'published'
+              ? (shift.assigned_count >= shift.required_staff ? 'shift-published' : 'shift-understaffed')
+              : 'shift-draft';
+            return (
+              <div
+                key={shift.id}
+                className={`month-shift-pill ${statusClass} ${canEdit ? 'clickable' : ''}`}
+                onClick={canEdit ? (e => handleShiftClick(e, shift)) : undefined}
+                title={`${shift.title} · ${formatTime(shift.start_time)} – ${formatTime(shift.end_time)}`}
+              >
+                <span className="month-shift-pill-title">{shift.title}</span>
+                <span className={`badge badge-${shift.status}`}>{shift.status}</span>
+              </div>
+            );
+          })}
+        />
       ) : (
         <WeekTimeGrid
           weekDays={weekDays}

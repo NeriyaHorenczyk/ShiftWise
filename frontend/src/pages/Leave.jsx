@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../services/api';
+import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip } from 'react-icons/lu';
 
@@ -173,7 +173,7 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
 
         {request.document_url && (
         
-        <a  href={`http://localhost:3000${request.document_url}`}
+        <a  href={getAssetUrl(request.document_url)}
             target="_blank"
             rel="noreferrer"
             className="leave-document"

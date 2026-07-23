@@ -2781,6 +2781,129 @@ input[type='time'] {
 [data-theme='dark'] .tg-event.shift-understaffed { background: #42200633; }
 [data-theme='dark'] .tg-event.shift-published { background: #14532d33; }
 
+/* Week/Month view switcher (My Shifts) */
+.view-toggle {
+  display: flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+/* Month calendar (My Shifts) — a plain day-grid with no hour axis, since
+   there isn't enough room to show times; each cell just lists that day's
+   shifts as compact pills. */
+.month-grid {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.month-grid-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.month-grid-weekday {
+  padding: 0.625rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.month-grid-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.month-grid-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.month-grid-day {
+  min-height: 110px;
+  padding: 0.375rem;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow: hidden;
+}
+
+.month-grid-week:first-child .month-grid-day { border-top: none; }
+.month-grid-day:first-child { border-left: none; }
+
+.month-grid-day.outside { background: var(--bg-secondary); opacity: 0.5; }
+
+.month-grid-day.today .month-grid-daynum {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.month-grid-daynum {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.month-grid-dayevents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  overflow-y: auto;
+}
+
+.month-shift-pill {
+  border-radius: 5px;
+  padding: 0.1875rem 0.375rem;
+  font-size: 0.6875rem;
+  border-left: 3px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+}
+
+.month-shift-pill.clickable { cursor: pointer; }
+.month-shift-pill.clickable:hover { opacity: 0.85; }
+
+.month-shift-pill-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.month-shift-pill .sm-badge,
+.month-shift-pill .badge {
+  flex-shrink: 0;
+}
+
+.month-shift-pill .badge {
+  font-size: 0.625rem;
+  padding: 0.1rem 0.4rem;
+}
+
+.month-shift-pill.shift-draft { background: var(--bg-secondary); border-left-color: var(--warning); }
+.month-shift-pill.shift-published { background: #dcfce7; border-left-color: var(--success); }
+.month-shift-pill.shift-understaffed { background: #fef9c3; border-left-color: var(--warning); }
+
+[data-theme='dark'] .month-shift-pill.shift-published { background: #14532d33; }
+[data-theme='dark'] .month-shift-pill.shift-understaffed { background: #42200633; }
+
 /* Availability blocks placed on the grid */
 .tg-avail {
   border-radius: 6px;

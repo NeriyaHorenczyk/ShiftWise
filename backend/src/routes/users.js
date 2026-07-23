@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole, requireSelfOrAdmin } from '../middleware/auth.middleware.js';
 import { uploadImage } from '../middleware/upload.middleware.js';
+import { validationError } from '../utils/response.js';
 import {
   getAllUsers,
   getUserById,
@@ -14,7 +15,7 @@ const router = Router();
 
 const handleAvatarUpload = (req, res, next) => {
   uploadImage.single('avatar')(req, res, err => {
-    if (err) return res.status(400).json({ error: err.message });
+    if (err) return validationError(res, err.message);
     next();
   });
 };

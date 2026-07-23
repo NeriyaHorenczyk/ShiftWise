@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../services/api';
+import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -119,7 +119,7 @@ const Team = () => {
                 <div className="team-card-left">
                   <div className="team-avatar">
                     {member.avatar_url ? (
-                      <img src={`http://localhost:3000${member.avatar_url}`} alt={member.name} />
+                      <img src={getAssetUrl(member.avatar_url)} alt={member.name} />
                     ) : (
                       <span>
                         {member.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}

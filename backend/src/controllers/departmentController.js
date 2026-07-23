@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
+import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 
 export const getAllDepartments = async (req, res) => {
   try {
@@ -16,12 +17,18 @@ export const getAllDepartments = async (req, res) => {
     if (['employee', 'shift_manager'].includes(req.user.role)) {
       query += ' WHERE d.id = (SELECT department_id FROM users WHERE id = ?)';
       params.push(req.user.id);
+    } else if (req.user.role === 'lead') {
+      // a lead only manages their own department — no reason for their
+      // browser to ever receive every other department's name/lead
+      query += ' WHERE d.lead_id = ?';
+      params.push(req.user.id);
     }
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No departments found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -35,24 +42,24 @@ export const getDepartmentById = async (req, res) => {
       LEFT JOIN users u ON d.lead_id = u.id
       WHERE d.id = ?
     `, [req.params.id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Department not found.' });
-    res.json(rows[0]);
+    if (rows.length === 0) return notFound(res, 'Department not found.');
+    success(res, rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
 export const createDepartment = async (req, res) => {
   try {
     const { name, lead_id } = req.body;
-    if (!name) return res.status(400).json({ error: 'Department name is required.' });
+    if (!name) return validationError(res, 'Department name is required.');
 
     const [existing] = await pool.query(
       'SELECT id FROM departments WHERE name = ?',
       [name.trim()]
     );
     if (existing.length > 0)
-      return res.status(409).json({ error: 'Department name already exists.' });
+      return conflict(res, 'Department name already exists.');
 
     if (lead_id) {
       const [users] = await pool.query(
@@ -60,9 +67,9 @@ export const createDepartment = async (req, res) => {
         [lead_id]
       );
       if (users.length === 0)
-        return res.status(404).json({ error: 'Lead user not found.' });
+        return notFound(res, 'Lead user not found.');
       if (users[0].role !== 'lead' && users[0].role !== 'admin')
-        return res.status(400).json({ error: 'Assigned lead must have role lead or admin.' });
+        return validationError(res, 'Assigned lead must have role lead or admin.');
     }
 
     const id = uuidv4();
@@ -71,9 +78,9 @@ export const createDepartment = async (req, res) => {
       [id, name.trim(), lead_id || null]
     );
 
-    res.status(201).json({ message: 'Department created successfully.', id });
+    created(res, { id }, 'Department created successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -84,12 +91,12 @@ export const updateDepartment = async (req, res) => {
 
     const [departments] = await pool.query('SELECT id, lead_id FROM departments WHERE id = ?', [id]);
     if (departments.length === 0)
-      return res.status(404).json({ error: 'Department not found.' });
+      return notFound(res, 'Department not found.');
 
     // leads can only rename their own department — not reassign leadership
     if (req.user.role === 'lead') {
       if (departments[0].lead_id !== req.user.id)
-        return res.status(403).json({ error: 'You can only update your own department.' });
+        return forbidden(res, 'You can only update your own department.');
       lead_id = undefined;
       delete req.body.lead_id;
     }
@@ -100,15 +107,15 @@ export const updateDepartment = async (req, res) => {
         [name.trim(), id]
       );
       if (existing.length > 0)
-        return res.status(409).json({ error: 'Department name already exists.' });
+        return conflict(res, 'Department name already exists.');
     }
 
     if (lead_id) {
       const [users] = await pool.query('SELECT id, role FROM users WHERE id = ?', [lead_id]);
       if (users.length === 0)
-        return res.status(404).json({ error: 'Lead user not found.' });
+        return notFound(res, 'Lead user not found.');
       if (!['lead', 'admin'].includes(users[0].role))
-        return res.status(400).json({ error: 'Assigned lead must have role lead or admin.' });
+        return validationError(res, 'Assigned lead must have role lead or admin.');
     }
 
     // Build SET clause dynamically so lead_id = null can actually clear the field
@@ -126,14 +133,14 @@ export const updateDepartment = async (req, res) => {
     }
 
     if (setClauses.length === 0)
-      return res.status(400).json({ error: 'No fields to update.' });
+      return validationError(res, 'No fields to update.');
 
     params.push(id);
     await pool.query(`UPDATE departments SET ${setClauses.join(', ')} WHERE id = ?`, params);
 
-    res.json({ message: 'Department updated successfully.' });
+    updated(res, null, 'Department updated successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -146,18 +153,18 @@ export const deleteDepartment = async (req, res) => {
       [id]
     );
     if (departments.length === 0)
-      return res.status(404).json({ error: 'Department not found.' });
+      return notFound(res, 'Department not found.');
 
     const [members] = await pool.query(
       'SELECT id FROM users WHERE department_id = ?',
       [id]
     );
     if (members.length > 0)
-      return res.status(400).json({ error: 'Cannot delete a department that still has members.' });
+      return validationError(res, 'Cannot delete a department that still has members.');
 
     await pool.query('DELETE FROM departments WHERE id = ?', [id]);
-    res.json({ message: 'Department deleted successfully.' });
+    deleted(res, 'Department deleted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

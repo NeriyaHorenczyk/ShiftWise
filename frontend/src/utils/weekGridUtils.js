@@ -2,6 +2,12 @@ export const HOUR_HEIGHT = 40; // px per hour
 
 export const hoursToPx = (hours) => hours * HOUR_HEIGHT;
 
+// Shift blocks under ~1.5h need a floor on rendered height so their
+// title/time/status badge don't get clipped. Shared by Schedule and My
+// Shifts so both week-grid calendars clip short shifts identically.
+export const SHIFT_EVENT_MIN_HEIGHT = 61;
+export const SHIFT_EVENT_MIN_DURATION_HOURS = SHIFT_EVENT_MIN_HEIGHT / HOUR_HEIGHT;
+
 const startOfDay = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);

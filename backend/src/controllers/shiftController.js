@@ -2,16 +2,22 @@ import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail, weekUnpublishedEmail } from '../utils/email.js';
 import { getSlot, toDateStr } from '../utils/slot.js';
+import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 
 export const getAllShifts = async (req, res) => {
   try {
-    let { department_id, week_start, status } = req.query;
+    let { department_id, week_start, start_date, end_date, status } = req.query;
 
     // employees and shift managers must never see another department's shifts,
     // regardless of what department_id they pass in
     if (['employee', 'shift_manager'].includes(req.user.role)) {
       const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
       department_id = me?.department_id || null;
+    } else if (req.user.role === 'lead') {
+      // a lead manages exactly one department — force it server-side rather
+      // than trusting whatever department_id the client happened to send
+      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ?', [req.user.id]);
+      department_id = dept?.id || null;
     }
 
     let query = `
@@ -34,7 +40,13 @@ export const getAllShifts = async (req, res) => {
       conditions.push('s.department_id = ?');
       params.push(department_id);
     }
-    if (week_start) {
+    // start_date/end_date give an explicit inclusive range (used by the
+    // month view); week_start keeps its original fixed 7-day-window
+    // behavior for existing callers.
+    if (start_date && end_date) {
+      conditions.push('DATE(s.start_time) >= ? AND DATE(s.start_time) <= ?');
+      params.push(start_date, end_date);
+    } else if (week_start) {
       conditions.push('DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)');
       params.push(week_start, week_start);
     }
@@ -56,9 +68,10 @@ export const getAllShifts = async (req, res) => {
     query += ' GROUP BY s.id ORDER BY s.start_time ASC';
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No shifts found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -77,18 +90,23 @@ export const getShiftById = async (req, res) => {
     `, [req.params.id]);
 
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
 
     // employees and shift managers can only view published shifts in their own department
     if (['employee', 'shift_manager'].includes(req.user.role)) {
       const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
       if (shifts[0].department_id !== me?.department_id || shifts[0].status !== 'published')
-        return res.status(403).json({ error: 'Access denied.' });
+        return forbidden(res, 'Access denied.');
+    } else if (req.user.role === 'lead') {
+      // a lead can view drafts too, but only within their own department
+      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ?', [req.user.id]);
+      if (shifts[0].department_id !== dept?.id)
+        return forbidden(res, 'Access denied.');
     }
 
     // fetch assigned employees separately
     const [assignments] = await pool.query(`
-      SELECT 
+      SELECT
         u.username, u.name, u.avatar_url,
         sa.is_shift_manager
       FROM shift_assignments sa
@@ -96,18 +114,18 @@ export const getShiftById = async (req, res) => {
       WHERE sa.shift_id = ?
     `, [req.params.id]);
 
-    res.json({ ...shifts[0], assignments });
+    success(res, { ...shifts[0], assignments });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
 export const getMyShifts = async (req, res) => {
   try {
-    const { week_start } = req.query;
+    const { week_start, start_date, end_date } = req.query;
 
     let query = `
-      SELECT 
+      SELECT
         s.id, s.title, s.start_time, s.end_time,
         s.required_staff, s.status,
         d.name AS department_name,
@@ -123,7 +141,13 @@ export const getMyShifts = async (req, res) => {
 
     const params = [req.user.id];
 
-    if (week_start) {
+    // start_date/end_date give an explicit inclusive range (used by the
+    // month view, which spans a variable number of days); week_start keeps
+    // its original fixed 7-day-window behavior for existing callers.
+    if (start_date && end_date) {
+      query += ` AND DATE(s.start_time) >= ? AND DATE(s.start_time) <= ?`;
+      params.push(start_date, end_date);
+    } else if (week_start) {
       query += ` AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)`;
       params.push(week_start, week_start);
     }
@@ -131,9 +155,10 @@ export const getMyShifts = async (req, res) => {
     query += ' GROUP BY s.id, sa.is_shift_manager ORDER BY s.start_time ASC';
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No shifts found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -142,13 +167,13 @@ export const createShift = async (req, res) => {
     const { department_id, title, start_time, end_time, required_staff } = req.body;
 
     if (!department_id || !title || !start_time || !end_time)
-      return res.status(400).json({ error: 'department_id, title, start_time and end_time are required.' });
+      return validationError(res, 'department_id, title, start_time and end_time are required.');
 
     if (new Date(start_time) >= new Date(end_time))
-      return res.status(400).json({ error: 'start_time must be before end_time.' });
+      return validationError(res, 'start_time must be before end_time.');
 
     if (new Date(end_time) <= new Date())
-      return res.status(400).json({ error: 'Cannot create a shift that has already ended.' });
+      return validationError(res, 'Cannot create a shift that has already ended.');
 
     // leads can only create shifts for their own department
     if (req.user.role === 'lead') {
@@ -157,9 +182,9 @@ export const createShift = async (req, res) => {
         [department_id]
       );
       if (depts.length === 0)
-        return res.status(404).json({ error: 'Department not found.' });
+        return notFound(res, 'Department not found.');
       if (depts[0].lead_id !== req.user.id)
-        return res.status(403).json({ error: 'You can only create shifts for your own department.' });
+        return forbidden(res, 'You can only create shifts for your own department.');
     }
 
     const [overlapping] = await pool.query(
@@ -167,7 +192,7 @@ export const createShift = async (req, res) => {
       [department_id, end_time, start_time]
     );
     if (overlapping.length > 0)
-      return res.status(409).json({ error: 'This shift overlaps with an existing shift in this department.' });
+      return conflict(res, 'This shift overlaps with an existing shift in this department.');
 
     const id = uuidv4();
     await pool.query(
@@ -176,9 +201,9 @@ export const createShift = async (req, res) => {
       [id, department_id, title, start_time, end_time, required_staff || 1, req.user.id]
     );
 
-    res.status(201).json({ message: 'Shift created successfully.', id });
+    created(res, { id }, 'Shift created successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -189,26 +214,26 @@ export const updateShift = async (req, res) => {
 
     const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
 
     if (shifts[0].status === 'published')
-      return res.status(400).json({ error: 'Cannot edit a published shift. Unpublish it first.' });
+      return validationError(res, 'Cannot edit a published shift. Unpublish it first.');
 
     if (start_time && end_time && new Date(start_time) >= new Date(end_time))
-      return res.status(400).json({ error: 'start_time must be before end_time.' });
+      return validationError(res, 'start_time must be before end_time.');
 
     const effectiveStart = start_time || shifts[0].start_time;
     const effectiveEnd = end_time || shifts[0].end_time;
 
     if (new Date(effectiveEnd) <= new Date())
-      return res.status(400).json({ error: 'Cannot set a shift to end in the past.' });
+      return validationError(res, 'Cannot set a shift to end in the past.');
 
     const [overlapping] = await pool.query(
       `SELECT id FROM shifts WHERE department_id = ? AND id != ? AND start_time < ? AND end_time > ?`,
       [shifts[0].department_id, id, effectiveEnd, effectiveStart]
     );
     if (overlapping.length > 0)
-      return res.status(409).json({ error: 'This shift overlaps with an existing shift in this department.' });
+      return conflict(res, 'This shift overlaps with an existing shift in this department.');
 
     await pool.query(
       `UPDATE shifts SET
@@ -220,9 +245,9 @@ export const updateShift = async (req, res) => {
       [title || null, start_time || null, end_time || null, required_staff || null, id]
     );
 
-    res.json({ message: 'Shift updated successfully.' });
+    updated(res, null, 'Shift updated successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -232,12 +257,12 @@ export const deleteShift = async (req, res) => {
 
     const [shifts] = await pool.query('SELECT id FROM shifts WHERE id = ?', [id]);
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
 
     await pool.query('DELETE FROM shifts WHERE id = ?', [id]);
-    res.json({ message: 'Shift deleted successfully.' });
+    deleted(res, 'Shift deleted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -250,18 +275,18 @@ export const publishShift = async (req, res) => {
       [id]
     );
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
     if (shifts[0].status === 'published')
-      return res.status(400).json({ error: 'Shift is already published.' });
+      return validationError(res, 'Shift is already published.');
 
     const [assignments] = await pool.query(
       'SELECT id, is_shift_manager FROM shift_assignments WHERE shift_id = ?',
       [id]
     );
     if (assignments.length === 0)
-      return res.status(400).json({ error: 'Cannot publish a shift with no assigned employees.' });
+      return validationError(res, 'Cannot publish a shift with no assigned employees.');
     if (!assignments.some(a => a.is_shift_manager))
-      return res.status(400).json({ error: 'Cannot publish — assign a shift manager first.' });
+      return validationError(res, 'Cannot publish — assign a shift manager first.');
 
     await pool.query(
       'UPDATE shifts SET status = ? WHERE id = ?',
@@ -278,9 +303,9 @@ export const publishShift = async (req, res) => {
       sendEmail(emp.email, `Shift published — ${shifts[0].title}`, shiftPublishedEmail(emp.name, shifts[0]))
     ));
 
-    res.json({ message: 'Shift published successfully.' });
+    updated(res, null, 'Shift published successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 }
 
@@ -289,9 +314,9 @@ export const unpublishShift = async (req, res) => {
     const { id } = req.params;
     const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
     if (shifts[0].status === 'draft')
-      return res.status(400).json({ error: 'Shift is already a draft.' });
+      return validationError(res, 'Shift is already a draft.');
 
     // email assigned employees before status changes (shifts[0] still has the data)
     const [employees] = await pool.query(
@@ -306,11 +331,11 @@ export const unpublishShift = async (req, res) => {
       sendEmail(emp.email, `Shift update — ${shifts[0].title}`, shiftUnpublishedEmail(emp.name, shifts[0]))
     ));
 
-    res.json({ message: 'Shift unpublished successfully.' });
+    updated(res, null, 'Shift unpublished successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
-};;
+};
 
 export const assignEmployee = async (req, res) => {
   try {
@@ -318,22 +343,22 @@ export const assignEmployee = async (req, res) => {
     const { user_id, is_shift_manager } = req.body;
 
     if (!user_id)
-      return res.status(400).json({ error: 'user_id is required.' });
+      return validationError(res, 'user_id is required.');
 
     const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
     if (shifts.length === 0)
-      return res.status(404).json({ error: 'Shift not found.' });
+      return notFound(res, 'Shift not found.');
 
     const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [user_id]);
     if (users.length === 0)
-      return res.status(404).json({ error: 'User not found.' });
+      return notFound(res, 'User not found.');
 
     const [[{ assignedCount }]] = await pool.query(
       'SELECT COUNT(*) AS assignedCount FROM shift_assignments WHERE shift_id = ?',
       [id]
     );
     if (assignedCount >= shifts[0].required_staff)
-      return res.status(400).json({ error: 'This shift is already at full capacity.' });
+      return validationError(res, 'This shift is already at full capacity.');
 
     const shiftStart = new Date(shifts[0].start_time);
     const shiftDateStr = toDateStr(shiftStart);
@@ -348,7 +373,7 @@ export const assignEmployee = async (req, res) => {
       [user_id, toDateStr(weekStart), dayOfWeek, slot]
     );
     if (avail.length > 0 && avail[0].status === 'unavailable')
-      return res.status(400).json({ error: 'This employee marked themselves unavailable for this shift.' });
+      return validationError(res, 'This employee marked themselves unavailable for this shift.');
 
     const [onLeave] = await pool.query(
       `SELECT id FROM leave_requests
@@ -356,11 +381,11 @@ export const assignEmployee = async (req, res) => {
       [user_id, shiftDateStr, shiftDateStr]
     );
     if (onLeave.length > 0)
-      return res.status(400).json({ error: 'This employee is on approved leave for this date.' });
+      return validationError(res, 'This employee is on approved leave for this date.');
 
     // only shift_managers can be assigned as shift manager
     if (is_shift_manager && users[0].role !== 'shift_manager')
-      return res.status(400).json({ error: 'Only shift managers can be assigned as shift manager for a shift.' });
+      return validationError(res, 'Only shift managers can be assigned as shift manager for a shift.');
 
     // only one shift manager allowed per shift
     if (is_shift_manager) {
@@ -369,7 +394,7 @@ export const assignEmployee = async (req, res) => {
         [id]
       );
       if (existing.length > 0)
-        return res.status(409).json({ error: 'This shift already has a shift manager assigned.' });
+        return conflict(res, 'This shift already has a shift manager assigned.');
     }
 
     const assignmentId = uuidv4();
@@ -378,11 +403,11 @@ export const assignEmployee = async (req, res) => {
       [assignmentId, id, user_id, is_shift_manager || false]
     );
 
-    res.status(201).json({ message: 'Employee assigned successfully.' });
+    created(res, null, 'Employee assigned successfully.');
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({ error: 'Employee is already assigned to this shift.' });
-    res.status(500).json({ error: err.message });
+      return conflict(res, 'Employee is already assigned to this shift.');
+    serverError(res, err.message);
   }
 };
 
@@ -393,12 +418,12 @@ export const autoAssign = async (req, res) => {
   try {
     const { department_id, week_start } = req.body;
     if (!department_id || !week_start) {
-      return res.status(400).json({ error: 'department_id and week_start are required.' });
+      return validationError(res, 'department_id and week_start are required.');
     }
 
     const [[lead]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
     if (!lead || lead.department_id !== department_id) {
-      return res.status(403).json({ error: 'You do not manage this department.' });
+      return forbidden(res, 'You do not manage this department.');
     }
 
     // 1. Draft shifts that still need more staff
@@ -419,7 +444,10 @@ export const autoAssign = async (req, res) => {
     );
 
     if (shifts.length === 0) {
-      return res.json({ assigned: 0, message: 'All draft shifts are already fully staffed.' });
+      // `message` is deliberately kept inside `data` here (not just the
+      // envelope's own message) — the frontend reads result.message as a
+      // fallback display string when there's nothing else to show.
+      return success(res, { assigned: 0, message: 'All draft shifts are already fully staffed.' }, 'All draft shifts are already fully staffed.');
     }
 
     // 2. Employees in the department
@@ -430,7 +458,7 @@ export const autoAssign = async (req, res) => {
     );
 
     if (employees.length === 0) {
-      return res.json({ assigned: 0, message: 'No employees in this department.' });
+      return success(res, { assigned: 0, message: 'No employees in this department.' }, 'No employees in this department.');
     }
 
     const employeeIds = employees.map(e => e.id);
@@ -619,13 +647,13 @@ export const autoAssign = async (req, res) => {
       );
     }
 
-    res.json({
+    success(res, {
       assigned: finalAssignments.length,
       noAvailability: availability.length === 0,
       failures,
-    });
+    }, 'Auto-assign complete.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -633,12 +661,12 @@ export const bulkClear = async (req, res) => {
   try {
     const { department_id, week_start } = req.body;
     if (!department_id || !week_start) {
-      return res.status(400).json({ error: 'department_id and week_start are required.' });
+      return validationError(res, 'department_id and week_start are required.');
     }
 
     const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
     if (!user || user.department_id !== department_id) {
-      return res.status(403).json({ error: 'You do not manage this department.' });
+      return forbidden(res, 'You do not manage this department.');
     }
 
     const [result] = await pool.query(
@@ -650,9 +678,9 @@ export const bulkClear = async (req, res) => {
       [department_id, week_start, week_start]
     );
 
-    res.json({ deleted: result.affectedRows });
+    success(res, { deleted: result.affectedRows }, 'Draft shifts cleared.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -660,12 +688,12 @@ export const bulkPublish = async (req, res) => {
   try {
     const { department_id, week_start } = req.body;
     if (!department_id || !week_start) {
-      return res.status(400).json({ error: 'department_id and week_start are required.' });
+      return validationError(res, 'department_id and week_start are required.');
     }
 
     const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
     if (!user || user.department_id !== department_id) {
-      return res.status(403).json({ error: 'You do not manage this department.' });
+      return forbidden(res, 'You do not manage this department.');
     }
 
     const [result] = await pool.query(
@@ -716,9 +744,9 @@ export const bulkPublish = async (req, res) => {
       ));
     }
 
-    res.json({ published: result.affectedRows, skipped: Number(skipped) });
+    success(res, { published: result.affectedRows, skipped: Number(skipped) }, 'Shifts published.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -726,12 +754,12 @@ export const bulkUnpublish = async (req, res) => {
   try {
     const { department_id, week_start } = req.body;
     if (!department_id || !week_start) {
-      return res.status(400).json({ error: 'department_id and week_start are required.' });
+      return validationError(res, 'department_id and week_start are required.');
     }
 
     const [[user]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
     if (!user || user.department_id !== department_id) {
-      return res.status(403).json({ error: 'You do not manage this department.' });
+      return forbidden(res, 'You do not manage this department.');
     }
 
     // collect affected employees BEFORE updating
@@ -771,9 +799,9 @@ export const bulkUnpublish = async (req, res) => {
       ));
     }
 
-    res.json({ unpublished: result.affectedRows });
+    success(res, { unpublished: result.affectedRows }, 'Shifts unpublished.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -787,10 +815,10 @@ export const unassignEmployee = async (req, res) => {
     );
 
     if (result.affectedRows === 0)
-      return res.status(404).json({ error: 'Assignment not found.' });
+      return notFound(res, 'Assignment not found.');
 
-    res.json({ message: 'Employee unassigned successfully.' });
+    deleted(res, 'Employee unassigned successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

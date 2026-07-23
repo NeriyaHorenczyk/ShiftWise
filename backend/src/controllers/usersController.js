@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import bcrypt from 'bcrypt';
+import { success, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 
 export const getAllUsers = async (req, res) => {
   try {
@@ -39,9 +40,10 @@ export const getAllUsers = async (req, res) => {
     }
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No users found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -51,10 +53,10 @@ export const getUserById = async (req, res) => {
       'SELECT id, username, email, name, role, department_id, avatar_url, created_at FROM users WHERE id = ?',
       [req.params.id]
     );
-    if (rows.length === 0) return res.status(404).json({ error: 'User not found.' });
-    res.json(rows[0]);
+    if (rows.length === 0) return notFound(res, 'User not found.');
+    success(res, rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -64,7 +66,7 @@ export const updateUser = async (req, res) => {
     const { name, email, password, currentPassword } = req.body;
 
     const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
-    if (users.length === 0) return res.status(404).json({ error: 'User not found.' });
+    if (users.length === 0) return notFound(res, 'User not found.');
     const user = users[0];
 
     if (email && email.trim() !== user.email) {
@@ -72,7 +74,7 @@ export const updateUser = async (req, res) => {
         'SELECT id FROM users WHERE email = ? AND id != ?',
         [email.trim(), id]
       );
-      if (existing.length > 0) return res.status(409).json({ error: 'Email already taken.' });
+      if (existing.length > 0) return conflict(res, 'Email already taken.');
     }
 
     if (password && password.trim() !== '') {
@@ -81,14 +83,14 @@ export const updateUser = async (req, res) => {
 
       if (!isAdmin || isSelf) {
         if (!currentPassword)
-          return res.status(400).json({ error: 'Current password is required to change password.' });
+          return validationError(res, 'Current password is required to change password.');
 
         const [passwords] = await pool.query(
           'SELECT password FROM passwords WHERE user_id = ?',
           [id]
         );
         const match = await bcrypt.compare(currentPassword, passwords[0].password);
-        if (!match) return res.status(400).json({ error: 'Current password is incorrect.' });
+        if (!match) return validationError(res, 'Current password is incorrect.');
       }
 
       const hashed = await bcrypt.hash(password.trim(), 10);
@@ -104,9 +106,9 @@ export const updateUser = async (req, res) => {
       ]
     );
 
-    res.json({ message: 'User updated successfully.' });
+    updated(res, null, 'User updated successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -117,36 +119,36 @@ export const updateUserRole = async (req, res) => {
 
     const validRoles = ['admin', 'lead', 'shift_manager', 'employee'];
     if (!validRoles.includes(role))
-      return res.status(400).json({ error: 'Invalid role.' });
-  
+      return validationError(res, 'Invalid role.');
+
     if (req.user.role === 'lead') {
       if (!['employee', 'shift_manager'].includes(role))
-        return res.status(403).json({ error: 'Leads can only promote to shift manager or demote to employee.' });
+        return forbidden(res, 'Leads can only promote to shift manager or demote to employee.');
     }
     const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
-    if (users.length === 0) return res.status(404).json({ error: 'User not found.' });
+    if (users.length === 0) return notFound(res, 'User not found.');
 
     await pool.query(
       'UPDATE users SET role = ?, department_id = ? WHERE id = ?',
       [role, department_id || null, id]
     );
 
-    res.json({ message: 'User role updated successfully.' });
+    updated(res, null, 'User role updated successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
 export const uploadAvatar = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No image file provided.' });
+    if (!req.file) return validationError(res, 'No image file provided.');
 
     const avatarUrl = `/uploads/${req.file.filename}`;
     await pool.query('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.params.id]);
 
-    res.json({ message: 'Avatar updated.', avatar_url: avatarUrl });
+    updated(res, { avatar_url: avatarUrl }, 'Avatar updated.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -155,14 +157,14 @@ export const deleteUser = async (req, res) => {
     const { id } = req.params;
 
     if (id === req.user.id)
-      return res.status(400).json({ error: 'You cannot delete your own account.' });
+      return validationError(res, 'You cannot delete your own account.');
 
     const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
-    if (users.length === 0) return res.status(404).json({ error: 'User not found.' });
+    if (users.length === 0) return notFound(res, 'User not found.');
 
     await pool.query('DELETE FROM users WHERE id = ?', [id]);
-    res.json({ message: 'User deleted successfully.' });
+    deleted(res, 'User deleted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

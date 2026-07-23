@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { LuSearch } from 'react-icons/lu';
-import { api } from '../../services/api';
+import { api, getAssetUrl } from '../../services/api';
 import useAuth from '../../hooks/useAuth';
 import ConfirmModal from '../../components/ConfirmModal';
 
@@ -171,7 +171,7 @@ const AdminUsers = () => {
                 <div className="team-card-left">
                   <div className="team-avatar">
                     {user.avatar_url ? (
-                      <img src={`http://localhost:3000${user.avatar_url}`} alt={user.name} />
+                      <img src={getAssetUrl(user.avatar_url)} alt={user.name} />
                     ) : (
                       <span>
                         {user.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}

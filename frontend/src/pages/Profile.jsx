@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { LuCamera, LuX } from 'react-icons/lu';
-import { api } from '../services/api';
+import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 
 const ROLE_LABELS = {
@@ -156,7 +156,7 @@ const Profile = () => {
                   title={currentUser?.avatar_url ? 'Click to view full size' : 'Click to upload a photo'}
                 >
                   {currentUser?.avatar_url ? (
-                    <img src={`http://localhost:3000${currentUser.avatar_url}`} alt={currentUser.name} />
+                    <img src={getAssetUrl(currentUser.avatar_url)} alt={currentUser.name} />
                   ) : (
                     <span>{initials}</span>
                   )}
@@ -320,7 +320,7 @@ const Profile = () => {
             <LuX size={22} />
           </button>
           <img
-            src={`http://localhost:3000${currentUser.avatar_url}`}
+            src={getAssetUrl(currentUser.avatar_url)}
             alt={currentUser.name}
             className="avatar-preview-img"
             onClick={e => e.stopPropagation()}

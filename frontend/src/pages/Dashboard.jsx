@@ -17,27 +17,11 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [shifts, swaps, leave] = await Promise.all([
-          api.getShifts(),
-          api.getSwaps(),
-          api.getLeave(),
-        ]);
-
-        setUpcomingShifts(shifts.slice(0, 5));
-        setPendingSwaps(swaps.filter(s => s.status === 'pending' || s.status === 'accepted'));
-        setPendingLeave(leave.filter(l => l.status === 'pending'));
-
-        if (isAdmin) {
-          const users = await api.getUsers();
-          const departments = await api.getDepartments();
-          setStats({
-            totalUsers: users.length,
-            totalDepartments: departments.length,
-            totalShifts: shifts.length,
-            pendingRequests: swaps.filter(s => s.status === 'pending').length +
-              leave.filter(l => l.status === 'pending').length,
-          });
-        }
+        const data = await api.getDashboard();
+        setUpcomingShifts(data.upcomingShifts);
+        setPendingSwaps(data.pendingSwaps);
+        setPendingLeave(data.pendingLeave);
+        setStats(data.stats);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -46,7 +30,7 @@ const Dashboard = () => {
     };
 
     fetchDashboardData();
-  }, [isAdmin]);
+  }, []);
 
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('en-IL', {

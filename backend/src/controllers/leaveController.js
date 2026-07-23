@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
+import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 
 export const getLeaveRequests = async (req, res) => {
   try {
@@ -42,9 +43,10 @@ export const getLeaveRequests = async (req, res) => {
     query += ' ORDER BY lr.created_at DESC';
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No leave requests found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -54,13 +56,13 @@ export const createLeaveRequest = async (req, res) => {
     const { start_date, end_date, reason } = req.body;
 
     if (!start_date || !end_date)
-      return res.status(400).json({ error: 'start_date and end_date are required.' });
+      return validationError(res, 'start_date and end_date are required.');
 
     if (new Date(start_date) > new Date(end_date))
-      return res.status(400).json({ error: 'start_date must be before or equal to end_date.' });
+      return validationError(res, 'start_date must be before or equal to end_date.');
 
     if (!req.files || req.files.length === 0)
-      return res.status(400).json({ error: 'A supporting document (medical certificate) is required.' });
+      return validationError(res, 'A supporting document (medical certificate) is required.');
 
     // check for overlapping pending/approved leave requests
     const [overlapping] = await pool.query(`
@@ -71,10 +73,10 @@ export const createLeaveRequest = async (req, res) => {
     `, [req.user.id, end_date, start_date]);
 
     if (overlapping.length > 0)
-      return res.status(409).json({ error: 'You already have a leave request overlapping these dates.' });
+      return conflict(res, 'You already have a leave request overlapping these dates.');
 
-      const document_url = req.files && req.files.length > 0 
-    ? `/uploads/${req.files[0].filename}` 
+      const document_url = req.files && req.files.length > 0
+    ? `/uploads/${req.files[0].filename}`
     : null;
     const id = uuidv4();
 
@@ -84,9 +86,9 @@ export const createLeaveRequest = async (req, res) => {
       [id, req.user.id, start_date, end_date, reason || null, document_url]
     );
 
-    res.status(201).json({ message: 'Leave request submitted successfully.', id });
+    created(res, { id }, 'Leave request submitted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -96,19 +98,19 @@ export const reviewLeaveRequest = async (req, res) => {
     const { action, lead_comment } = req.body;
 
     if (!['approve', 'reject'].includes(action))
-      return res.status(400).json({ error: 'action must be approve or reject.' });
+      return validationError(res, 'action must be approve or reject.');
 
     const [requests] = await pool.query(
       'SELECT * FROM leave_requests WHERE id = ?',
       [id]
     );
     if (requests.length === 0)
-      return res.status(404).json({ error: 'Leave request not found.' });
+      return notFound(res, 'Leave request not found.');
 
     const leave = requests[0];
 
     if (leave.status !== 'pending')
-      return res.status(400).json({ error: 'This leave request has already been reviewed.' });
+      return validationError(res, 'This leave request has already been reviewed.');
 
     // leads can only review requests from their own department
     if (req.user.role === 'lead') {
@@ -122,7 +124,7 @@ export const reviewLeaveRequest = async (req, res) => {
           [leave.user_id]
         );
         if (userDept.length === 0 || userDept[0].department_id !== depts[0]?.id)
-          return res.status(403).json({ error: 'You can only review requests from your own department.' });
+          return forbidden(res, 'You can only review requests from your own department.');
       }
     }
 
@@ -136,7 +138,7 @@ export const reviewLeaveRequest = async (req, res) => {
         [leave.user_id, leave.end_date, leave.start_date]
       );
       if (conflicts.length > 0)
-        return res.status(409).json({ error: 'Cannot approve leave: employee is currently scheduled for shifts during this period.' });
+        return conflict(res, 'Cannot approve leave: employee is currently scheduled for shifts during this period.');
     }
 
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
@@ -148,9 +150,9 @@ export const reviewLeaveRequest = async (req, res) => {
       [newStatus, req.user.id, lead_comment || null, id]
     );
 
-    res.json({ message: `Leave request ${newStatus}.` });
+    updated(res, null, `Leave request ${newStatus}.`);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -163,21 +165,21 @@ export const deleteLeaveRequest = async (req, res) => {
       [id]
     );
     if (requests.length === 0)
-      return res.status(404).json({ error: 'Leave request not found.' });
+      return notFound(res, 'Leave request not found.');
 
     const leave = requests[0];
 
     // only the owner can delete their own request
     if (leave.user_id !== req.user.id && req.user.role !== 'admin')
-      return res.status(403).json({ error: 'You can only delete your own leave requests.' });
+      return forbidden(res, 'You can only delete your own leave requests.');
 
     // cannot delete an already reviewed request
     if (leave.status !== 'pending')
-      return res.status(400).json({ error: 'You cannot delete a request that has already been reviewed.' });
+      return validationError(res, 'You cannot delete a request that has already been reviewed.');
 
     await pool.query('DELETE FROM leave_requests WHERE id = ?', [id]);
-    res.json({ message: 'Leave request deleted successfully.' });
+    deleted(res, 'Leave request deleted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth.middleware.js';
 import upload from '../middleware/upload.middleware.js';
+import { validationError } from '../utils/response.js';
 import {
   getLeaveRequests,
   createLeaveRequest,
@@ -12,7 +13,7 @@ const router = Router();
 
 const handleDocumentUpload = (req, res, next) => {
   upload.any()(req, res, err => {
-    if (err) return res.status(400).json({ error: err.message });
+    if (err) return validationError(res, err.message);
     next();
   });
 };

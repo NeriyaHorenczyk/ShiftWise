@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getSlot } from '../utils/slot.js';
+import { success, created, noData, forbidden, validationError, serverError } from '../utils/response.js';
 
 // Once a shift is published, the assigned employee's availability for that
 // day/slot is locked in — it can no longer be changed via availability edits.
@@ -24,7 +25,7 @@ export const getAvailability = async (req, res) => {
 
     // employees can only see their own availability
     if (['employee', 'shift_manager'].includes(req.user.role) && user_id !== req.user.id)
-      return res.status(403).json({ error: 'Access denied. You can only view your own availability.' });
+      return forbidden(res, 'Access denied. You can only view your own availability.');
 
     let query = 'SELECT * FROM availability WHERE 1=1';
     const params = [];
@@ -41,9 +42,10 @@ export const getAvailability = async (req, res) => {
     query += ' ORDER BY week_start ASC, day_of_week ASC, slot ASC';
 
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No availability records found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -52,7 +54,7 @@ export const getTeamAvailability = async (req, res) => {
     const { week_start, department_id } = req.query;
 
     if (!week_start)
-      return res.status(400).json({ error: 'week_start is required.' });
+      return validationError(res, 'week_start is required.');
 
     // leads can only see their own department
     let deptId = department_id;
@@ -62,7 +64,7 @@ export const getTeamAvailability = async (req, res) => {
         [req.user.id]
       );
       if (depts.length === 0)
-        return res.status(403).json({ error: 'You are not assigned as lead of any department.' });
+        return forbidden(res, 'You are not assigned as lead of any department.');
       deptId = depts[0].id;
     }
 
@@ -79,9 +81,10 @@ export const getTeamAvailability = async (req, res) => {
       ORDER BY a.day_of_week ASC, a.slot ASC, u.name ASC
     `, [week_start, deptId]);
 
-    res.json(rows);
+    if (rows.length === 0) return noData(res, 'No team availability records found.', rows);
+    success(res, rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -91,23 +94,23 @@ export const submitAvailability = async (req, res) => {
 
     // slots is an array of { day_of_week, slot, status }
     if (!week_start || !Array.isArray(slots) || slots.length === 0)
-      return res.status(400).json({ error: 'week_start and slots array are required.' });
+      return validationError(res, 'week_start and slots array are required.');
 
     // validate week_start is a Sunday
     const date = new Date(week_start);
     if (date.getDay() !== 0)
-      return res.status(400).json({ error: 'week_start must be a Sunday.' });
+      return validationError(res, 'week_start must be a Sunday.');
 
     const validSlots = ['morning', 'afternoon', 'evening'];
     const validStatuses = ['available', 'preferred', 'unavailable'];
 
     for (const s of slots) {
       if (s.day_of_week < 0 || s.day_of_week > 6)
-        return res.status(400).json({ error: 'day_of_week must be between 0 and 6.' });
+        return validationError(res, 'day_of_week must be between 0 and 6.');
       if (!validSlots.includes(s.slot))
-        return res.status(400).json({ error: `Invalid slot: ${s.slot}` });
+        return validationError(res, `Invalid slot: ${s.slot}`);
       if (!validStatuses.includes(s.status))
-        return res.status(400).json({ error: `Invalid status: ${s.status}` });
+        return validationError(res, `Invalid status: ${s.status}`);
     }
 
     // block actual changes to slots locked by a published shift assignment.
@@ -126,7 +129,7 @@ export const submitAvailability = async (req, res) => {
       for (const s of slots) {
         const key = `${s.day_of_week}_${s.slot}`;
         if (lockedKeys.has(key) && (existingMap[key] || 'available') !== s.status) {
-          return res.status(400).json({ error: 'Cannot modify availability for a date with a published shift assignment.' });
+          return validationError(res, 'Cannot modify availability for a date with a published shift assignment.');
         }
       }
     }
@@ -147,9 +150,9 @@ export const submitAvailability = async (req, res) => {
       `, [id, req.user.id, week_start, s.day_of_week, s.slot, s.status]);
     }
 
-    res.status(201).json({ message: 'Availability submitted successfully.' });
+    created(res, null, 'Availability submitted successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -158,7 +161,7 @@ export const deleteAvailability = async (req, res) => {
     const { week_start } = req.query;
 
     if (!week_start)
-      return res.status(400).json({ error: 'week_start is required.' });
+      return validationError(res, 'week_start is required.');
 
     const lockedKeys = await getLockedSlotKeys(req.user.id, week_start);
     if (lockedKeys.size > 0) {
@@ -168,7 +171,7 @@ export const deleteAvailability = async (req, res) => {
       );
       const hasLockedRow = existingRows.some(r => lockedKeys.has(`${r.day_of_week}_${r.slot}`));
       if (hasLockedRow)
-        return res.status(400).json({ error: 'Cannot modify availability for a date with a published shift assignment.' });
+        return validationError(res, 'Cannot modify availability for a date with a published shift assignment.');
     }
 
     await pool.query(
@@ -176,8 +179,8 @@ export const deleteAvailability = async (req, res) => {
       [req.user.id, week_start]
     );
 
-    res.json({ message: 'Availability cleared for that week.' });
+    success(res, null, 'Availability cleared for that week.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };

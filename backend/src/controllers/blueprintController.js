@@ -1,5 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuid } from 'uuid';
+import { success, created, updated, deleted, noData, notFound, conflict, validationError, serverError } from '../utils/response.js';
 
 const toYMD = (d) => {
   if (!d) return null;
@@ -26,14 +27,14 @@ const getUserDeptId = async (userId) => {
 export const getBlueprint = async (req, res) => {
   try {
     const deptId = await getUserDeptId(req.user.id);
-    if (!deptId) return res.status(400).json({ error: 'You are not assigned to a department.' });
+    if (!deptId) return validationError(res, 'You are not assigned to a department.');
 
     const [[blueprint]] = await pool.query(
       'SELECT * FROM shift_blueprints WHERE department_id = ?',
       [deptId]
     );
 
-    if (!blueprint) return res.json(null);
+    if (!blueprint) return noData(res, 'No blueprint configured for this department.');
 
     const [shifts] = await pool.query(
       'SELECT * FROM blueprint_shifts WHERE blueprint_id = ? ORDER BY day_of_week, start_time',
@@ -64,7 +65,7 @@ export const getBlueprint = async (req, res) => {
       shiftsByOverride[s.override_id].push({ ...s, needs_shift_manager: !!s.needs_shift_manager });
     }
 
-    res.json({
+    success(res, {
       ...blueprint,
       shifts: shifts.map(s => ({ ...s, needs_shift_manager: !!s.needs_shift_manager })),
       presets: presets.map(p => ({ ...p, needs_shift_manager: !!p.needs_shift_manager })),
@@ -75,7 +76,7 @@ export const getBlueprint = async (req, res) => {
       })),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -83,7 +84,7 @@ export const getBlueprint = async (req, res) => {
 export const createBlueprint = async (req, res) => {
   try {
     const deptId = await getUserDeptId(req.user.id);
-    if (!deptId) return res.status(400).json({ error: 'You are not assigned to a department.' });
+    if (!deptId) return validationError(res, 'You are not assigned to a department.');
 
     const { name = 'Standard Week' } = req.body;
     const id = uuid();
@@ -93,13 +94,13 @@ export const createBlueprint = async (req, res) => {
         [id, deptId, name.trim(), req.user.id]
       );
     } catch (err) {
-      if (err.errno === 1062) return res.status(409).json({ error: 'A blueprint already exists for this department.' });
+      if (err.errno === 1062) return conflict(res, 'A blueprint already exists for this department.');
       throw err;
     }
 
-    res.status(201).json({ id, department_id: deptId, name: name.trim(), shifts: [], presets: [], overrides: [] });
+    created(res, { id, department_id: deptId, name: name.trim(), shifts: [], presets: [], overrides: [] }, 'Blueprint created.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -107,15 +108,15 @@ export const createBlueprint = async (req, res) => {
 export const updateBlueprint = async (req, res) => {
   try {
     const { name } = req.body;
-    if (!name?.trim()) return res.status(400).json({ error: 'Name is required.' });
+    if (!name?.trim()) return validationError(res, 'Name is required.');
     const deptId = await getUserDeptId(req.user.id);
     await pool.query(
       'UPDATE shift_blueprints SET name = ? WHERE id = ? AND department_id = ?',
       [name.trim(), req.params.id, deptId]
     );
-    res.json({ message: 'Blueprint updated.' });
+    updated(res, null, 'Blueprint updated.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -125,7 +126,7 @@ export const addBlueprintShift = async (req, res) => {
     const { day_of_week, title, start_time, end_time, required_staff = 1, needs_shift_manager = false } = req.body;
 
     if (day_of_week === undefined || day_of_week === null || !title?.trim() || !start_time || !end_time) {
-      return res.status(400).json({ error: 'day_of_week, title, start_time, and end_time are required.' });
+      return validationError(res, 'day_of_week, title, start_time, and end_time are required.');
     }
 
     const deptId = await getUserDeptId(req.user.id);
@@ -133,7 +134,7 @@ export const addBlueprintShift = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     const id = uuid();
     await pool.query(
@@ -143,12 +144,12 @@ export const addBlueprintShift = async (req, res) => {
       [id, req.params.id, day_of_week, title.trim(), start_time, end_time, required_staff, needs_shift_manager ? 1 : 0]
     );
 
-    res.status(201).json({
+    created(res, {
       id, blueprint_id: req.params.id, day_of_week, title: title.trim(),
       start_time, end_time, required_staff, needs_shift_manager: !!needs_shift_manager,
-    });
+    }, 'Shift slot added.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -160,12 +161,12 @@ export const removeBlueprintShift = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     await pool.query('DELETE FROM blueprint_shifts WHERE id = ? AND blueprint_id = ?', [req.params.slotId, req.params.id]);
-    res.json({ message: 'Shift slot removed.' });
+    deleted(res, 'Shift slot removed.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -174,7 +175,7 @@ export const addBlueprintOverride = async (req, res) => {
   try {
     const { override_date, label } = req.body;
     if (!override_date || !label?.trim()) {
-      return res.status(400).json({ error: 'override_date and label are required.' });
+      return validationError(res, 'override_date and label are required.');
     }
 
     const deptId = await getUserDeptId(req.user.id);
@@ -182,7 +183,7 @@ export const addBlueprintOverride = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     const id = uuid();
     try {
@@ -191,13 +192,13 @@ export const addBlueprintOverride = async (req, res) => {
         [id, req.params.id, override_date, label.trim()]
       );
     } catch (err) {
-      if (err.errno === 1062) return res.status(409).json({ error: 'An override already exists for this date.' });
+      if (err.errno === 1062) return conflict(res, 'An override already exists for this date.');
       throw err;
     }
 
-    res.status(201).json({ id, blueprint_id: req.params.id, override_date, label: label.trim(), shifts: [] });
+    created(res, { id, blueprint_id: req.params.id, override_date, label: label.trim(), shifts: [] }, 'Override added.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -206,7 +207,7 @@ export const addOverrideShift = async (req, res) => {
   try {
     const { title, start_time, end_time, required_staff = 1, needs_shift_manager = false } = req.body;
     if (!title?.trim() || !start_time || !end_time) {
-      return res.status(400).json({ error: 'title, start_time, and end_time are required.' });
+      return validationError(res, 'title, start_time, and end_time are required.');
     }
 
     const deptId = await getUserDeptId(req.user.id);
@@ -214,13 +215,13 @@ export const addOverrideShift = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     const [[ov]] = await pool.query(
       'SELECT id FROM blueprint_overrides WHERE id = ? AND blueprint_id = ?',
       [req.params.ovId, req.params.id]
     );
-    if (!ov) return res.status(404).json({ error: 'Override not found.' });
+    if (!ov) return notFound(res, 'Override not found.');
 
     const id = uuid();
     await pool.query(
@@ -230,13 +231,13 @@ export const addOverrideShift = async (req, res) => {
       [id, req.params.ovId, title.trim(), start_time, end_time, required_staff, needs_shift_manager ? 1 : 0]
     );
 
-    res.status(201).json({
+    created(res, {
       id, override_id: req.params.ovId,
       title: title.trim(), start_time, end_time, required_staff,
       needs_shift_manager: !!needs_shift_manager,
-    });
+    }, 'Override shift added.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -248,15 +249,15 @@ export const removeOverrideShift = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     await pool.query(
       'DELETE FROM blueprint_override_shifts WHERE id = ? AND override_id = ?',
       [req.params.shiftId, req.params.ovId]
     );
-    res.json({ message: 'Override shift removed.' });
+    deleted(res, 'Override shift removed.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -268,12 +269,12 @@ export const removeBlueprintOverride = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     await pool.query('DELETE FROM blueprint_overrides WHERE id = ? AND blueprint_id = ?', [req.params.ovId, req.params.id]);
-    res.json({ message: 'Override removed.' });
+    deleted(res, 'Override removed.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -282,14 +283,14 @@ export const addPreset = async (req, res) => {
   try {
     const { title, start_time, end_time, required_staff = 1, needs_shift_manager = false } = req.body;
     if (!title?.trim() || !start_time || !end_time) {
-      return res.status(400).json({ error: 'title, start_time, and end_time are required.' });
+      return validationError(res, 'title, start_time, and end_time are required.');
     }
     const deptId = await getUserDeptId(req.user.id);
     const [[bp]] = await pool.query(
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     const id = uuid();
     await pool.query(
@@ -298,9 +299,9 @@ export const addPreset = async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [id, req.params.id, title.trim(), start_time, end_time, required_staff, needs_shift_manager ? 1 : 0]
     );
-    res.status(201).json({ id, blueprint_id: req.params.id, title: title.trim(), start_time, end_time, required_staff, needs_shift_manager: !!needs_shift_manager });
+    created(res, { id, blueprint_id: req.params.id, title: title.trim(), start_time, end_time, required_staff, needs_shift_manager: !!needs_shift_manager }, 'Preset added.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -312,14 +313,14 @@ export const removePreset = async (req, res) => {
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
     await pool.query(
       'DELETE FROM blueprint_presets WHERE id = ? AND blueprint_id = ?',
       [req.params.presetId, req.params.id]
     );
-    res.json({ message: 'Preset removed.' });
+    deleted(res, 'Preset removed.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
 
@@ -327,13 +328,13 @@ export const removePreset = async (req, res) => {
 export const generateShifts = async (req, res) => {
   try {
     const { week_start } = req.body;
-    if (!week_start) return res.status(400).json({ error: 'week_start is required.' });
+    if (!week_start) return validationError(res, 'week_start is required.');
 
     // Parse as local date parts to avoid timezone issues
     const [y, m, d] = week_start.split('-').map(Number);
     const weekDate = new Date(y, m - 1, d);
     if (weekDate.getDay() !== 0) {
-      return res.status(400).json({ error: 'week_start must be a Sunday.' });
+      return validationError(res, 'week_start must be a Sunday.');
     }
 
     const deptId = await getUserDeptId(req.user.id);
@@ -341,7 +342,7 @@ export const generateShifts = async (req, res) => {
       'SELECT id, department_id FROM shift_blueprints WHERE id = ? AND department_id = ?',
       [req.params.id, deptId]
     );
-    if (!bp) return res.status(404).json({ error: 'Blueprint not found.' });
+    if (!bp) return notFound(res, 'Blueprint not found.');
 
     const [bpShifts] = await pool.query(
       'SELECT * FROM blueprint_shifts WHERE blueprint_id = ?',
@@ -408,8 +409,8 @@ export const generateShifts = async (req, res) => {
       );
     }
 
-    res.json({ created: insertRows.length, overrideDays, week_start });
+    success(res, { created: insertRows.length, overrideDays, week_start }, 'Shifts generated.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res, err.message);
   }
 };
