@@ -175,6 +175,12 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, formatD
           })}
         </div>
 
+        {swap.message && (
+          <div className="swap-comment">
+            <span className="comment-label">Message:</span> {swap.message}
+          </div>
+        )}
+
         {swap.lead_comment && (
           <div className="swap-comment">
             <span className="comment-label">Lead comment:</span> {swap.lead_comment}

@@ -74,6 +74,7 @@ CREATE TABLE swap_requests (
   target_id CHAR(36) NOT NULL,
   shift_id CHAR(36) NOT NULL,
   status ENUM('pending', 'accepted', 'rejected', 'approved') DEFAULT 'pending',
+  message VARCHAR(500) DEFAULT NULL,
   lead_comment TEXT,
   created_at DATETIME DEFAULT NOW(),
   FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,

@@ -8,8 +8,8 @@ import { emitSwapRequested, emitScheduleUpdated } from '../services/socketServic
 export const getSwaps = async (req, res) => {
   try {
     let query = `
-      SELECT 
-        sr.id, sr.status, sr.lead_comment, sr.created_at,
+      SELECT
+        sr.id, sr.status, sr.message, sr.lead_comment, sr.created_at,
         requester.name AS requester_name,
         requester.username AS requester_username,
         target.name AS target_name,
@@ -58,13 +58,17 @@ export const getSwaps = async (req, res) => {
 
 export const createSwap = async (req, res) => {
   try {
-    const { target_username, shift_id } = req.body;
+    const { target_username, shift_id, message } = req.body;
 
     if (!target_username || !shift_id)
       return validationError(res, 'target_username and shift_id are required.');
 
     if (target_username === req.user.username)
       return validationError(res, 'You cannot request a swap with yourself.');
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    if (trimmedMessage.length > 500)
+      return validationError(res, 'Message must be 500 characters or fewer.');
 
     // verify the shift exists and is published
     const [shifts] = await pool.query(
@@ -128,9 +132,9 @@ export const createSwap = async (req, res) => {
 
     const id = uuidv4();
     await pool.query(
-      `INSERT INTO swap_requests (id, requester_id, target_id, shift_id)
-       VALUES (?, ?, ?, ?)`,
-      [id, req.user.id, targets[0].id, shift_id]
+      `INSERT INTO swap_requests (id, requester_id, target_id, shift_id, message)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, req.user.id, targets[0].id, shift_id, trimmedMessage || null]
     );
 
     emitSwapRequested(shifts[0].department_id, {
@@ -138,6 +142,7 @@ export const createSwap = async (req, res) => {
       shiftTitle: shifts[0].title,
       requesterUsername: req.user.username,
       targetUsername: target_username,
+      message: trimmedMessage || null,
     });
 
     created(res, { id }, 'Swap request created successfully.');

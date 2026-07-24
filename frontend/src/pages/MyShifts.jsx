@@ -240,9 +240,12 @@ const MyShiftCard = ({ shift, currentUser, style }) => {
   );
 };
 
+const SWAP_MESSAGE_MAX_LENGTH = 500;
+
 const SwapRequestModal = ({ shift, currentUser, onClose }) => {
   const [teamMembers, setTeamMembers] = useState([]);
   const [targetUsername, setTargetUsername] = useState('');
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -279,7 +282,11 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
     setLoading(true);
     setError('');
     try {
-      await api.createSwap({ shift_id: shift.id, target_username: targetUsername });
+      await api.createSwap({
+        shift_id: shift.id,
+        target_username: targetUsername,
+        message: message.trim() || undefined,
+      });
       setSuccess('Swap request sent successfully.');
     } catch (err) {
       setError(err.message);
@@ -314,6 +321,20 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
               <option key={u.username} value={u.username}>{u.username}</option>
             ))}
           </select>
+        </div>
+
+        <div className="form-group">
+          <label>Message to colleague (optional)</label>
+          <textarea
+            className="form-textarea"
+            rows={3}
+            placeholder="e.g. I have a doctor's appointment that day — happy to explain more if needed."
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            disabled={!!success}
+            maxLength={SWAP_MESSAGE_MAX_LENGTH}
+          />
+          <p className="input-hint">{message.length}/{SWAP_MESSAGE_MAX_LENGTH}</p>
         </div>
 
         {error && <div className="error-message">{error}</div>}

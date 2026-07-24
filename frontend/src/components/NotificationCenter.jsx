@@ -54,10 +54,11 @@ const NotificationCenter = () => {
     };
 
     const handleSwapRequested = (payload) => {
+      const base = `${payload.requesterUsername} wants to swap "${payload.shiftTitle}" with ${payload.targetUsername}.`;
       pushToast({
         type: 'info',
         title: 'New swap request',
-        message: `${payload.requesterUsername} wants to swap "${payload.shiftTitle}" with ${payload.targetUsername}.`,
+        message: payload.message ? `${base} "${payload.message}"` : base,
       });
     };
 
