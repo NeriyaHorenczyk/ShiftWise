@@ -96,7 +96,7 @@ export const getEmployeeStats = async (req, res) => {
         AND DATE(sr_target.created_at) <= ?
       WHERE ${whereConditions.join(' AND ')}
       GROUP BY u.id, u.name, u.username, u.role
-      ORDER BY total_hours DESC, u.name ASC
+      ORDER BY u.name ASC
     `;
 
     const [rows] = await pool.query(query, allParams);

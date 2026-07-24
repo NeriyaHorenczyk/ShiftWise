@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail, weekUnpublishedEmail } from '../utils/email.js';
 import { getSlot, toDateStr } from '../utils/slot.js';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { withTransaction, TransactionError } from '../utils/transaction.js';
 
 export const getAllShifts = async (req, res) => {
   try {
@@ -353,13 +354,6 @@ export const assignEmployee = async (req, res) => {
     if (users.length === 0)
       return notFound(res, 'User not found.');
 
-    const [[{ assignedCount }]] = await pool.query(
-      'SELECT COUNT(*) AS assignedCount FROM shift_assignments WHERE shift_id = ?',
-      [id]
-    );
-    if (assignedCount >= shifts[0].required_staff)
-      return validationError(res, 'This shift is already at full capacity.');
-
     const shiftStart = new Date(shifts[0].start_time);
     const shiftDateStr = toDateStr(shiftStart);
     const dayOfWeek = shiftStart.getDay();
@@ -387,21 +381,40 @@ export const assignEmployee = async (req, res) => {
     if (is_shift_manager && users[0].role !== 'shift_manager')
       return validationError(res, 'Only shift managers can be assigned as shift manager for a shift.');
 
-    // only one shift manager allowed per shift
-    if (is_shift_manager) {
-      const [existing] = await pool.query(
-        'SELECT id FROM shift_assignments WHERE shift_id = ? AND is_shift_manager = true',
-        [id]
-      );
-      if (existing.length > 0)
-        return conflict(res, 'This shift already has a shift manager assigned.');
-    }
+    try {
+      await withTransaction(async (conn) => {
+        // Lock the shift row itself first — that's what actually serializes
+        // two concurrent assign calls against each other, including the
+        // case where the shift currently has zero assignments (locking only
+        // the shift_assignments rows wouldn't block a concurrent INSERT,
+        // since there'd be no existing row for that lock to apply to).
+        const [[lockedShift]] = await conn.query(
+          'SELECT required_staff FROM shifts WHERE id = ? FOR UPDATE',
+          [id]
+        );
 
-    const assignmentId = uuidv4();
-    await pool.query(
-      'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES (?, ?, ?, ?)',
-      [assignmentId, id, user_id, is_shift_manager || false]
-    );
+        const [existingAssignments] = await conn.query(
+          'SELECT is_shift_manager FROM shift_assignments WHERE shift_id = ?',
+          [id]
+        );
+
+        if (existingAssignments.length >= lockedShift.required_staff)
+          throw new TransactionError('This shift is already at full capacity.', 'validationError');
+
+        if (is_shift_manager && existingAssignments.some(a => a.is_shift_manager))
+          throw new TransactionError('This shift already has a shift manager assigned.', 'conflict');
+
+        await conn.query(
+          'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES (?, ?, ?, ?)',
+          [uuidv4(), id, user_id, is_shift_manager || false]
+        );
+      });
+    } catch (err) {
+      if (err instanceof TransactionError) {
+        return err.kind === 'conflict' ? conflict(res, err.message) : validationError(res, err.message);
+      }
+      throw err;
+    }
 
     created(res, null, 'Employee assigned successfully.');
   } catch (err) {
@@ -641,10 +654,16 @@ export const autoAssign = async (req, res) => {
     }
 
     if (finalAssignments.length > 0) {
-      await pool.query(
-        'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES ?',
-        [finalAssignments]
-      );
+      // A single statement is already atomic, but running it through the
+      // same transaction helper keeps this consistent with every other
+      // multi-row write and gives it an explicit rollback path if the
+      // driver throws partway (e.g. a dropped connection mid-insert).
+      await withTransaction(async (conn) => {
+        await conn.query(
+          'INSERT INTO shift_assignments (id, shift_id, user_id, is_shift_manager) VALUES ?',
+          [finalAssignments]
+        );
+      });
     }
 
     success(res, {

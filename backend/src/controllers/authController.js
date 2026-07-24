@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { created, success, conflict, unauthorized, serverError } from '../utils/response.js';
+import { withTransaction } from '../utils/transaction.js';
 
 export const register = async (req, res) => {
   try {
@@ -18,17 +19,24 @@ export const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = uuidv4();
 
-    await pool.query(
-      'INSERT INTO users (id, username, email, name) VALUES (?, ?, ?, ?)',
-      [userId, username, email, name]
-    );
-    await pool.query(
-      'INSERT INTO passwords (user_id, password) VALUES (?, ?)',
-      [userId, hashedPassword]
-    );
+    // The account row and its password row must land together — if the
+    // second insert failed after the first committed, the account would
+    // exist with no password and could never log in.
+    await withTransaction(async (conn) => {
+      await conn.query(
+        'INSERT INTO users (id, username, email, name) VALUES (?, ?, ?, ?)',
+        [userId, username, email, name]
+      );
+      await conn.query(
+        'INSERT INTO passwords (user_id, password) VALUES (?, ?)',
+        [userId, hashedPassword]
+      );
+    });
 
     created(res, { username }, 'User registered successfully.');
   } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY')
+      return conflict(res, 'Username or email already taken.');
     serverError(res, err.message);
   }
 };

@@ -2,6 +2,7 @@ import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, swapApprovedEmail } from '../utils/email.js';
 import { success, created, updated, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { withTransaction } from '../utils/transaction.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -193,23 +194,31 @@ export const approveSwap = async (req, res) => {
     if (swap.status !== 'accepted')
       return validationError(res, 'You can only approve a swap that has been accepted by both employees.');
 
-    if (action === 'approve') {
-      // execute the swap — remove requester, add target
-      await pool.query(
-        'DELETE FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
-        [swap.shift_id, swap.requester_id]
-      );
-      await pool.query(
-        'INSERT INTO shift_assignments (id, shift_id, user_id) VALUES (?, ?, ?)',
-        [uuidv4(), swap.shift_id, swap.target_id]
-      );
-    }
-
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
-    await pool.query(
-      'UPDATE swap_requests SET status = ?, lead_comment = ? WHERE id = ?',
-      [newStatus, lead_comment || null, id]
-    );
+
+    // Swapping the assignment and updating the request's status must land
+    // together — if the DELETE (or the following INSERT) succeeded but a
+    // later statement failed, the shift could end up with no one assigned
+    // at all, or the request could stay 'accepted' despite the swap having
+    // already happened.
+    await withTransaction(async (conn) => {
+      if (action === 'approve') {
+        // execute the swap — remove requester, add target
+        await conn.query(
+          'DELETE FROM shift_assignments WHERE shift_id = ? AND user_id = ?',
+          [swap.shift_id, swap.requester_id]
+        );
+        await conn.query(
+          'INSERT INTO shift_assignments (id, shift_id, user_id) VALUES (?, ?, ?)',
+          [uuidv4(), swap.shift_id, swap.target_id]
+        );
+      }
+
+      await conn.query(
+        'UPDATE swap_requests SET status = ?, lead_comment = ? WHERE id = ?',
+        [newStatus, lead_comment || null, id]
+      );
+    });
 
     if (action === 'approve') {
       const [[shiftInfo]] = await pool.query(
