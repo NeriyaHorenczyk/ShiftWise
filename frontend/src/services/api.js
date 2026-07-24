@@ -166,4 +166,9 @@ export const api = {
   createLeave: (formData) => request('/leave', { method: 'POST', body: formData, isFormData: true }),
   reviewLeave: (id, data) => request(`/leave/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteLeave: (id) => request(`/leave/${id}`, { method: 'DELETE' }),
+
+  // AI (ShiftWise Copilot / Schedule Auditor / Leave Request Assistant)
+  aiChat: (data) => request('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
+  auditSchedule: (data) => request('/ai/audit', { method: 'POST', body: JSON.stringify(data) }),
+  refineLeaveRequest: (data) => request('/ai/refine-request', { method: 'POST', body: JSON.stringify(data) }),
 };

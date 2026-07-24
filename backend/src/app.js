@@ -16,6 +16,7 @@ import leaveRouter from './routes/leave.js';
 import reportsRouter from './routes/reports.js';
 import blueprintRouter from './routes/blueprint.js';
 import dashboardRouter from './routes/dashboard.js';
+import aiRouter from './routes/ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -73,6 +74,7 @@ app.use('/leave', leaveRouter);
 app.use('/reports', reportsRouter);
 app.use('/blueprints', blueprintRouter);
 app.use('/dashboard', dashboardRouter);
+app.use('/ai', aiRouter);
 
 // 404s and thrown/passed-through errors still need to come back as JSON,
 // otherwise the frontend gets Express's default HTML page and fails to parse it.

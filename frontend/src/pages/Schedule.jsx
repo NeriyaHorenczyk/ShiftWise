@@ -18,11 +18,14 @@ import {
   LuPlus,
   LuUsers,
   LuX,
+  LuSparkles,
 } from 'react-icons/lu';
 import ConfirmModal from '../components/ConfirmModal';
 import WeekTimeGrid from '../components/WeekTimeGrid';
 import MonthGrid from '../components/MonthGrid';
 import CalendarNav from '../components/CalendarNav';
+import AiCopilot from '../components/AiCopilot';
+import AuditModal from '../components/AuditModal';
 import {
   splitIntoDaySegments,
   layoutColumns,
@@ -60,6 +63,12 @@ const Schedule = () => {
   const [selectedShift, setSelectedShift] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkMessages, setBulkMessages] = useState([]); // [{ text, type }]
+
+  // AI Schedule Auditor
+  const [showAudit, setShowAudit] = useState(false);
+  const [auditReport, setAuditReport] = useState('');
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
 
   const weekStart = getWeekStart(anchorDate);
   const monthStart = getMonthStart(anchorDate);
@@ -300,6 +309,24 @@ const Schedule = () => {
     }
   };
 
+  const handleAudit = async () => {
+    setShowAudit(true);
+    setAuditLoading(true);
+    setAuditError('');
+    setAuditReport('');
+    try {
+      const { report } = await api.auditSchedule({
+        department_id: selectedDept,
+        week_start: toDateString(weekStart),
+      });
+      setAuditReport(report);
+    } catch (err) {
+      setAuditError(err.message);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
   const draftCount = shifts.filter(s => s.status === 'draft').length;
   const publishedCount = shifts.filter(s => s.status === 'published').length;
   const currentDeptName = departments.find(d => d.id === selectedDept)?.name;
@@ -336,6 +363,18 @@ const Schedule = () => {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
+        )}
+
+        {canEdit && selectedDept && (
+          <button
+            className="btn btn-secondary"
+            onClick={handleAudit}
+            disabled={auditLoading}
+            title="Get an AI-generated fairness and burnout report for this week"
+          >
+            <LuSparkles size={16} />
+            Analyze Schedule with AI
+          </button>
         )}
 
         {viewMode === 'week' && canEdit && selectedDept && (draftCount > 0 || publishedCount > 0) && (
@@ -523,6 +562,17 @@ const Schedule = () => {
           onCancel={() => setShowUnpublishAllConfirm(false)}
         />
       )}
+
+      {showAudit && (
+        <AuditModal
+          report={auditReport}
+          loading={auditLoading}
+          error={auditError}
+          onClose={() => setShowAudit(false)}
+        />
+      )}
+
+      {canEdit && <AiCopilot weekStart={toDateString(weekStart)} />}
     </div>
   );
 };

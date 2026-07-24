@@ -42,3 +42,10 @@ export const conflict = (res, message = 'Resource already exists.') =>
 
 export const serverError = (res, message = 'Internal server error.') =>
   send(res, 500, 'SERVER_ERROR', message, null);
+
+// For a dependency we don't control being down/misconfigured/rate-limited
+// (e.g. an external AI provider) — distinct from serverError (500), which
+// implies our own code broke. Lets the frontend show "try again shortly"
+// instead of a generic failure.
+export const serviceUnavailable = (res, message = 'Service temporarily unavailable.') =>
+  send(res, 503, 'SERVICE_UNAVAILABLE', message, null);

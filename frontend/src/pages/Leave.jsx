@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
-import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip } from 'react-icons/lu';
+import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip, LuSparkles, LuLoaderCircle } from 'react-icons/lu';
 
 const Leave = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
@@ -232,6 +232,28 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
   const [file, setFile] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState('');
+
+  const canRefine = !!form.reason.trim() && !!form.start_date && !!form.end_date;
+
+  const handleRefine = async () => {
+    if (!canRefine || refining) return;
+    setRefining(true);
+    setRefineError('');
+    try {
+      const { refinedText } = await api.refineLeaveRequest({
+        reason: form.reason.trim(),
+        startDate: form.start_date,
+        endDate: form.end_date,
+      });
+      setForm(p => ({ ...p, reason: refinedText }));
+    } catch (err) {
+      setRefineError(err.message);
+    } finally {
+      setRefining(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -291,7 +313,19 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
           </div>
 
           <div className="form-group">
-            <label>Reason (optional)</label>
+            <div className="form-label-row">
+              <label>Reason (optional)</label>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefine}
+                disabled={!canRefine || refining}
+                title={canRefine ? 'Rewrite your note as a polished, professional reason' : 'Select start and end dates and enter a reason first'}
+              >
+                {refining ? <LuLoaderCircle size={14} className="spin" /> : <LuSparkles size={14} />}
+                Refine with AI
+              </button>
+            </div>
             <textarea
               className="form-textarea"
               placeholder="Describe the reason for your leave..."
@@ -299,6 +333,7 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
               onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
               rows={3}
             />
+            {refineError && <div className="error-message">{refineError}</div>}
           </div>
 
           <div className="form-group">
