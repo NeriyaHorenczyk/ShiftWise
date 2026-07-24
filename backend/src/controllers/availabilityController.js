@@ -2,6 +2,12 @@ import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getSlot } from '../utils/slot.js';
 import { success, created, noData, forbidden, validationError, serverError } from '../utils/response.js';
+import { emitAvailabilityUpdated } from '../services/socketService.js';
+
+const getDepartmentId = async (userId) => {
+  const [[row]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [userId]);
+  return row?.department_id ?? null;
+};
 
 // Once a shift is published, the assigned employee's availability for that
 // day/slot is locked in — it can no longer be changed via availability edits.
@@ -78,6 +84,7 @@ export const getTeamAvailability = async (req, res) => {
       JOIN users u ON a.user_id = u.id
       WHERE a.week_start = ?
         AND u.department_id = ?
+        AND u.deleted_at IS NULL
       ORDER BY a.day_of_week ASC, a.slot ASC, u.name ASC
     `, [week_start, deptId]);
 
@@ -150,6 +157,9 @@ export const submitAvailability = async (req, res) => {
       `, [id, req.user.id, week_start, s.day_of_week, s.slot, s.status]);
     }
 
+    const departmentId = await getDepartmentId(req.user.id);
+    emitAvailabilityUpdated(departmentId, { user_id: req.user.id, week_start });
+
     created(res, null, 'Availability submitted successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -178,6 +188,9 @@ export const deleteAvailability = async (req, res) => {
       'DELETE FROM availability WHERE user_id = ? AND week_start = ?',
       [req.user.id, week_start]
     );
+
+    const departmentId = await getDepartmentId(req.user.id);
+    emitAvailabilityUpdated(departmentId, { user_id: req.user.id, week_start });
 
     success(res, null, 'Availability cleared for that week.');
   } catch (err) {

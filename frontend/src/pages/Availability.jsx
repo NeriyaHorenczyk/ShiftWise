@@ -11,6 +11,7 @@ import {
 import { eventBlockStyle, getSlotForHour } from '../utils/weekGridUtils';
 import { LuChevronLeft, LuChevronRight, LuSearch, LuLock } from 'react-icons/lu';
 import useAuth from '../hooks/useAuth';
+import useSocket from '../hooks/useSocket';
 import WeekTimeGrid from '../components/WeekTimeGrid';
 
 const SLOTS = ['morning', 'afternoon', 'evening'];
@@ -253,6 +254,8 @@ const PersonalAvailability = () => {
 // and a name search is far more useful for staffing decisions than reusing
 // the personal single-employee time grid.
 const TeamAvailability = () => {
+  const { currentUser } = useAuth();
+  const { socket } = useSocket();
   const [weekStart, setWeekStart] = useState(getWeekStart());
   const [employees, setEmployees] = useState([]);
   const [availability, setAvailability] = useState([]);
@@ -262,17 +265,22 @@ const TeamAvailability = () => {
 
   const weekDays = getWeekDays(weekStart);
 
+  // Shared by the initial/week-change load below and the live socket refetch.
+  const loadTeamAvailability = async () => {
+    const [users, avail] = await Promise.all([
+      api.getUsers(),
+      api.getTeamAvailability({ week_start: toDateString(weekStart) }),
+    ]);
+    setEmployees(users.filter(u => u.role === 'employee' || u.role === 'shift_manager'));
+    setAvailability(avail);
+  };
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError('');
       try {
-        const [users, avail] = await Promise.all([
-          api.getUsers(),
-          api.getTeamAvailability({ week_start: toDateString(weekStart) }),
-        ]);
-        setEmployees(users.filter(u => u.role === 'employee' || u.role === 'shift_manager'));
-        setAvailability(avail);
+        await loadTeamAvailability();
       } catch (err) {
         setError(err.message);
       } finally {
@@ -280,7 +288,31 @@ const TeamAvailability = () => {
       }
     };
     load();
+    // weekStart identity changes every render (new Date from prevWeek/nextWeek),
+    // but the fetch itself only needs the string it derives — loadTeamAvailability
+    // is intentionally left out of deps since it's redefined every render anyway
+    // and always closes over the current weekStart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
+
+  // Live collaborative sync: an employee submitting/editing/clearing their
+  // availability (see socketService.js emitAvailabilityUpdated call sites)
+  // refetches this department's team availability automatically, same
+  // pattern as Schedule.jsx/MyShifts.jsx. Admins have no single department_id
+  // on their own user record, so they refetch unconditionally; leads only
+  // refetch for their own department's events.
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleAvailabilityUpdated = (payload) => {
+      if (currentUser?.department_id && payload.department_id !== currentUser.department_id) return;
+      loadTeamAvailability().catch(err => setError(err.message));
+    };
+
+    socket.on('availability:updated', handleAvailabilityUpdated);
+    return () => socket.off('availability:updated', handleAvailabilityUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, currentUser?.department_id, weekStart]);
 
   const prevWeek = () => {
     const d = new Date(weekStart);

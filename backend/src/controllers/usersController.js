@@ -13,9 +13,10 @@ export const getAllUsers = async (req, res) => {
         SELECT id, username, email, name, role,
           department_id, avatar_url, created_at
         FROM users
+        WHERE deleted_at IS NULL
       `;
       if (department_id) {
-        query += ' WHERE department_id = ?';
+        query += ' AND department_id = ?';
         params.push(department_id);
       }
     } else if (req.user.role === 'lead') {
@@ -23,18 +24,20 @@ export const getAllUsers = async (req, res) => {
         SELECT id, username, name, role,
           department_id, avatar_url
         FROM users
-        WHERE department_id = (
-          SELECT id FROM departments WHERE lead_id = ?
-        )
+        WHERE deleted_at IS NULL
+          AND department_id = (
+            SELECT id FROM departments WHERE lead_id = ?
+          )
       `;
       params.push(req.user.id);
     } else {
       query = `
         SELECT username, role
         FROM users
-        WHERE department_id = (
-          SELECT department_id FROM users WHERE id = ?
-        )
+        WHERE deleted_at IS NULL
+          AND department_id = (
+            SELECT department_id FROM users WHERE id = ?
+          )
       `;
       params.push(req.user.id);
     }
@@ -50,7 +53,7 @@ export const getAllUsers = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, username, email, name, role, department_id, avatar_url, created_at FROM users WHERE id = ?',
+      'SELECT id, username, email, name, role, department_id, avatar_url, created_at FROM users WHERE id = ? AND deleted_at IS NULL',
       [req.params.id]
     );
     if (rows.length === 0) return notFound(res, 'User not found.');
@@ -65,7 +68,7 @@ export const updateUser = async (req, res) => {
     const { id } = req.params;
     const { name, email, password, currentPassword } = req.body;
 
-    const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+    const [users] = await pool.query('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
     if (users.length === 0) return notFound(res, 'User not found.');
     const user = users[0];
 
@@ -125,7 +128,7 @@ export const updateUserRole = async (req, res) => {
       if (!['employee', 'shift_manager'].includes(role))
         return forbidden(res, 'Leads can only promote to shift manager or demote to employee.');
     }
-    const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
+    const [users] = await pool.query('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
     if (users.length === 0) return notFound(res, 'User not found.');
 
     await pool.query(
@@ -159,10 +162,13 @@ export const deleteUser = async (req, res) => {
     if (id === req.user.id)
       return validationError(res, 'You cannot delete your own account.');
 
-    const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
+    const [users] = await pool.query('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
     if (users.length === 0) return notFound(res, 'User not found.');
 
-    await pool.query('DELETE FROM users WHERE id = ?', [id]);
+    // Soft delete — historical shift/leave/swap records reference this user
+    // by id and must keep resolving their name correctly; a hard DELETE
+    // would cascade (per the FK constraints) and silently blank those out.
+    await pool.query('UPDATE users SET deleted_at = NOW() WHERE id = ?', [id]);
     deleted(res, 'User deleted successfully.');
   } catch (err) {
     serverError(res, err.message);

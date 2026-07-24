@@ -46,7 +46,7 @@ export const login = async (req, res) => {
     const { username, password } = req.body;
 
     const [users] = await pool.query(
-      'SELECT u.*, p.password AS hashed FROM users u JOIN passwords p ON u.id = p.user_id WHERE u.username = ?',
+      'SELECT u.*, p.password AS hashed FROM users u JOIN passwords p ON u.id = p.user_id WHERE u.username = ? AND u.deleted_at IS NULL',
       [username]
     );
     if (users.length === 0)

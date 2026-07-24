@@ -18,6 +18,7 @@ CREATE TABLE users (
   department_id CHAR(36),
   avatar_url VARCHAR(255),
   created_at DATETIME DEFAULT NOW(),
+  deleted_at DATETIME DEFAULT NULL,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
 );
 
@@ -41,6 +42,7 @@ CREATE TABLE shifts (
   required_staff INT DEFAULT 1,
   status ENUM('draft', 'published') DEFAULT 'draft',
   created_by CHAR(36),
+  deleted_at DATETIME DEFAULT NULL,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );

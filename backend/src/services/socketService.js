@@ -129,3 +129,14 @@ export const emitSwapRequested = (departmentId, payload = {}) => {
     getIO().to(`dept:${departmentId}:managers`).to('role:admin').emit('swap:requested', payload);
   });
 };
+
+// Broadcast whenever an employee submits/edits/clears their availability, so
+// a lead/admin already viewing the team availability grid sees it update
+// live instead of needing a manual refresh — same room scope as
+// emitScheduleUpdated, since this is department-scoped staffing data too.
+export const emitAvailabilityUpdated = (departmentId, payload = {}) => {
+  if (!departmentId) return;
+  safeEmit('availability:updated', () => {
+    getIO().to(`dept:${departmentId}`).to('role:admin').emit('availability:updated', { department_id: departmentId, ...payload });
+  });
+};

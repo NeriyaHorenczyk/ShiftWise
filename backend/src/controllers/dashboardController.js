@@ -24,7 +24,7 @@ export const getDashboard = async (req, res) => {
          FROM shift_assignments sa
          JOIN shifts s ON sa.shift_id = s.id
          JOIN departments d ON s.department_id = d.id
-         WHERE sa.user_id = ? AND s.status = 'published' AND s.start_time >= NOW()
+         WHERE sa.user_id = ? AND s.status = 'published' AND s.start_time >= NOW() AND s.deleted_at IS NULL
          ORDER BY s.start_time ASC LIMIT 5`,
         [userId]
       );
@@ -33,7 +33,7 @@ export const getDashboard = async (req, res) => {
         `SELECT s.id, s.title, s.start_time, s.end_time, s.status, d.name AS department_name
          FROM shifts s
          JOIN departments d ON s.department_id = d.id
-         WHERE s.department_id = ? AND s.start_time >= NOW()
+         WHERE s.department_id = ? AND s.start_time >= NOW() AND s.deleted_at IS NULL
          ORDER BY s.start_time ASC LIMIT 5`,
         [deptId]
       );
@@ -43,7 +43,7 @@ export const getDashboard = async (req, res) => {
         `SELECT s.id, s.title, s.start_time, s.end_time, s.status, d.name AS department_name
          FROM shifts s
          JOIN departments d ON s.department_id = d.id
-         WHERE s.start_time >= NOW()
+         WHERE s.start_time >= NOW() AND s.deleted_at IS NULL
          ORDER BY s.start_time ASC LIMIT 5`
       );
     }
@@ -92,9 +92,9 @@ export const getDashboard = async (req, res) => {
 
     let stats = null;
     if (role === 'admin') {
-      const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) AS totalUsers FROM users');
+      const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) AS totalUsers FROM users WHERE deleted_at IS NULL');
       const [[{ totalDepartments }]] = await pool.query('SELECT COUNT(*) AS totalDepartments FROM departments');
-      const [[{ totalShifts }]] = await pool.query('SELECT COUNT(*) AS totalShifts FROM shifts');
+      const [[{ totalShifts }]] = await pool.query('SELECT COUNT(*) AS totalShifts FROM shifts WHERE deleted_at IS NULL');
       const [[{ pendingSwapCount }]] = await pool.query(
         `SELECT COUNT(*) AS pendingSwapCount FROM swap_requests WHERE status = 'pending'`
       );

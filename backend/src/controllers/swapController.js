@@ -68,7 +68,7 @@ export const createSwap = async (req, res) => {
 
     // verify the shift exists and is published
     const [shifts] = await pool.query(
-      'SELECT * FROM shifts WHERE id = ?',
+      'SELECT * FROM shifts WHERE id = ? AND deleted_at IS NULL',
       [shift_id]
     );
     if (shifts.length === 0)
@@ -86,7 +86,7 @@ export const createSwap = async (req, res) => {
 
     // resolve target_username to a user record
     const [targets] = await pool.query(
-      'SELECT * FROM users WHERE username = ?',
+      'SELECT * FROM users WHERE username = ? AND deleted_at IS NULL',
       [target_username]
     );
     if (targets.length === 0)

@@ -35,7 +35,7 @@ export const getAllShifts = async (req, res) => {
       LEFT JOIN shift_assignments sa ON s.id = sa.shift_id
     `;
 
-    const conditions = [];
+    const conditions = ['s.deleted_at IS NULL'];
     const params = [];
 
     if (department_id) {
@@ -88,7 +88,7 @@ export const getShiftById = async (req, res) => {
       FROM shifts s
       LEFT JOIN departments d ON s.department_id = d.id
       LEFT JOIN users u ON s.created_by = u.id
-      WHERE s.id = ?
+      WHERE s.id = ? AND s.deleted_at IS NULL
     `, [req.params.id]);
 
     if (shifts.length === 0)
@@ -139,6 +139,7 @@ export const getMyShifts = async (req, res) => {
       LEFT JOIN shift_assignments sa2 ON s.id = sa2.shift_id
       WHERE sa.user_id = ?
         AND s.status = 'published'
+        AND s.deleted_at IS NULL
     `;
 
     const params = [req.user.id];
@@ -190,7 +191,7 @@ export const createShift = async (req, res) => {
     }
 
     const [overlapping] = await pool.query(
-      `SELECT id FROM shifts WHERE department_id = ? AND start_time < ? AND end_time > ?`,
+      `SELECT id FROM shifts WHERE department_id = ? AND start_time < ? AND end_time > ? AND deleted_at IS NULL`,
       [department_id, end_time, start_time]
     );
     if (overlapping.length > 0)
@@ -215,7 +216,7 @@ export const updateShift = async (req, res) => {
     const { id } = req.params;
     const { title, start_time, end_time, required_staff } = req.body;
 
-    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ? AND deleted_at IS NULL', [id]);
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
 
@@ -232,7 +233,7 @@ export const updateShift = async (req, res) => {
       return validationError(res, 'Cannot set a shift to end in the past.');
 
     const [overlapping] = await pool.query(
-      `SELECT id FROM shifts WHERE department_id = ? AND id != ? AND start_time < ? AND end_time > ?`,
+      `SELECT id FROM shifts WHERE department_id = ? AND id != ? AND start_time < ? AND end_time > ? AND deleted_at IS NULL`,
       [shifts[0].department_id, id, effectiveEnd, effectiveStart]
     );
     if (overlapping.length > 0)
@@ -259,11 +260,14 @@ export const deleteShift = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [shifts] = await pool.query('SELECT id, department_id FROM shifts WHERE id = ?', [id]);
+    const [shifts] = await pool.query('SELECT id, department_id FROM shifts WHERE id = ? AND deleted_at IS NULL', [id]);
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
 
-    await pool.query('DELETE FROM shifts WHERE id = ?', [id]);
+    // Soft delete — swap_requests/shift_assignments reference this shift by
+    // id and a hard DELETE's ON DELETE CASCADE would silently wipe those
+    // historical records along with it.
+    await pool.query('UPDATE shifts SET deleted_at = NOW() WHERE id = ?', [id]);
     emitScheduleUpdated(shifts[0].department_id, { reason: 'deleted', shiftId: id });
     deleted(res, 'Shift deleted successfully.');
   } catch (err) {
@@ -276,7 +280,7 @@ export const publishShift = async (req, res) => {
     const { id } = req.params;
 
     const [shifts] = await pool.query(
-      'SELECT * FROM shifts WHERE id = ?',
+      'SELECT * FROM shifts WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (shifts.length === 0)
@@ -298,10 +302,10 @@ export const publishShift = async (req, res) => {
       ['published', id]
     );
 
-    // email assigned employees
+    // email assigned employees (skip any who've since been deleted)
     const [employees] = await pool.query(
       `SELECT u.email, u.name FROM shift_assignments sa
-       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ?`,
+       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ? AND u.deleted_at IS NULL`,
       [id]
     );
     await Promise.all(employees.map((emp) =>
@@ -318,16 +322,17 @@ export const publishShift = async (req, res) => {
 export const unpublishShift = async (req, res) => {
   try {
     const { id } = req.params;
-    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ? AND deleted_at IS NULL', [id]);
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
     if (shifts[0].status === 'draft')
       return validationError(res, 'Shift is already a draft.');
 
-    // email assigned employees before status changes (shifts[0] still has the data)
+    // email assigned employees before status changes (shifts[0] still has the
+    // data); skip any who've since been deleted
     const [employees] = await pool.query(
       `SELECT u.email, u.name FROM shift_assignments sa
-       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ?`,
+       JOIN users u ON sa.user_id = u.id WHERE sa.shift_id = ? AND u.deleted_at IS NULL`,
       [id]
     );
 
@@ -352,11 +357,11 @@ export const assignEmployee = async (req, res) => {
     if (!user_id)
       return validationError(res, 'user_id is required.');
 
-    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ?', [id]);
+    const [shifts] = await pool.query('SELECT * FROM shifts WHERE id = ? AND deleted_at IS NULL', [id]);
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
 
-    const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [user_id]);
+    const [users] = await pool.query('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL', [user_id]);
     if (users.length === 0)
       return notFound(res, 'User not found.');
 
@@ -455,6 +460,7 @@ export const autoAssign = async (req, res) => {
        LEFT JOIN shift_assignments sa ON sa.shift_id = s.id
        WHERE s.department_id = ?
          AND s.status = 'draft'
+         AND s.deleted_at IS NULL
          AND DATE(s.start_time) >= ?
          AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
        GROUP BY s.id
@@ -473,7 +479,7 @@ export const autoAssign = async (req, res) => {
     // 2. Employees in the department
     const [employees] = await pool.query(
       `SELECT id, role FROM users
-       WHERE department_id = ? AND role IN ('employee', 'shift_manager')`,
+       WHERE department_id = ? AND role IN ('employee', 'shift_manager') AND deleted_at IS NULL`,
       [department_id]
     );
 
@@ -513,6 +519,7 @@ export const autoAssign = async (req, res) => {
     const [allWeekShifts] = await pool.query(
       `SELECT id, start_time, end_time FROM shifts
        WHERE department_id = ?
+         AND deleted_at IS NULL
          AND DATE(start_time) >= ?
          AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
       [department_id, week_start, week_start]
@@ -699,10 +706,14 @@ export const bulkClear = async (req, res) => {
       return forbidden(res, 'You do not manage this department.');
     }
 
+    // Soft delete — same reasoning as deleteShift: preserves audit/recovery
+    // capability for bulk-cleared drafts instead of hard-wiping them.
     const [result] = await pool.query(
-      `DELETE FROM shifts
+      `UPDATE shifts
+       SET deleted_at = NOW()
        WHERE department_id = ?
          AND status = 'draft'
+         AND deleted_at IS NULL
          AND DATE(start_time) >= ?
          AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
       [department_id, week_start, week_start]
@@ -734,6 +745,7 @@ export const bulkPublish = async (req, res) => {
        SET s.status = 'published'
        WHERE s.department_id = ?
          AND s.status = 'draft'
+         AND s.deleted_at IS NULL
          AND DATE(s.start_time) >= ?
          AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
          AND EXISTS (SELECT 1 FROM shift_assignments sa WHERE sa.shift_id = s.id AND sa.is_shift_manager = 1)`,
@@ -744,12 +756,14 @@ export const bulkPublish = async (req, res) => {
       `SELECT COUNT(*) AS skipped FROM shifts
        WHERE department_id = ?
          AND status = 'draft'
+         AND deleted_at IS NULL
          AND DATE(start_time) >= ?
          AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
       [department_id, week_start, week_start]
     );
 
     // email each employee once listing all their shifts for the week
+    // (skip any who've since been deleted)
     if (result.affectedRows > 0) {
       const [rows] = await pool.query(
         `SELECT s.title, s.start_time, s.end_time,
@@ -759,6 +773,8 @@ export const bulkPublish = async (req, res) => {
          JOIN users u ON u.id = sa.user_id
          WHERE s.department_id = ?
            AND s.status = 'published'
+           AND s.deleted_at IS NULL
+           AND u.deleted_at IS NULL
            AND DATE(s.start_time) >= ?
            AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
          ORDER BY s.start_time`,
@@ -798,7 +814,7 @@ export const bulkUnpublish = async (req, res) => {
       return forbidden(res, 'You do not manage this department.');
     }
 
-    // collect affected employees BEFORE updating
+    // collect affected employees BEFORE updating (skip any since-deleted users)
     const [rows] = await pool.query(
       `SELECT s.title, s.start_time, s.end_time,
               u.id AS user_id, u.email, u.name AS user_name
@@ -807,6 +823,8 @@ export const bulkUnpublish = async (req, res) => {
        JOIN users u ON u.id = sa.user_id
        WHERE s.department_id = ?
          AND s.status = 'published'
+         AND s.deleted_at IS NULL
+         AND u.deleted_at IS NULL
          AND DATE(s.start_time) >= ?
          AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
        ORDER BY s.start_time`,
@@ -817,6 +835,7 @@ export const bulkUnpublish = async (req, res) => {
       `UPDATE shifts SET status = 'draft'
        WHERE department_id = ?
          AND status = 'published'
+         AND deleted_at IS NULL
          AND DATE(start_time) >= ?
          AND DATE(start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
       [department_id, week_start, week_start]

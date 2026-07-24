@@ -63,7 +63,7 @@ export const createDepartment = async (req, res) => {
 
     if (lead_id) {
       const [users] = await pool.query(
-        'SELECT id, role FROM users WHERE id = ?',
+        'SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL',
         [lead_id]
       );
       if (users.length === 0)
@@ -111,7 +111,7 @@ export const updateDepartment = async (req, res) => {
     }
 
     if (lead_id) {
-      const [users] = await pool.query('SELECT id, role FROM users WHERE id = ?', [lead_id]);
+      const [users] = await pool.query('SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL', [lead_id]);
       if (users.length === 0)
         return notFound(res, 'Lead user not found.');
       if (!['lead', 'admin'].includes(users[0].role))
