@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, swapApprovedEmail } from '../utils/email.js';
 import { success, created, updated, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
+import { emitSwapRequested, emitScheduleUpdated } from '../services/socketService.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -132,6 +133,13 @@ export const createSwap = async (req, res) => {
       [id, req.user.id, targets[0].id, shift_id]
     );
 
+    emitSwapRequested(shifts[0].department_id, {
+      swapId: id,
+      shiftTitle: shifts[0].title,
+      requesterUsername: req.user.username,
+      targetUsername: target_username,
+    });
+
     created(res, { id }, 'Swap request created successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -222,7 +230,7 @@ export const approveSwap = async (req, res) => {
 
     if (action === 'approve') {
       const [[shiftInfo]] = await pool.query(
-        'SELECT title, start_time, end_time FROM shifts WHERE id = ?',
+        'SELECT title, start_time, end_time, department_id FROM shifts WHERE id = ?',
         [swap.shift_id]
       );
       const [[requester]] = await pool.query(
@@ -237,6 +245,11 @@ export const approveSwap = async (req, res) => {
         sendEmail(requester.email, `Swap approved — ${shiftInfo.title}`, swapApprovedEmail(requester.name, true, shiftInfo, target.name)),
         sendEmail(target.email, `Swap approved — ${shiftInfo.title}`, swapApprovedEmail(target.name, false, shiftInfo, requester.name)),
       ]);
+
+      // an approved swap changes who's assigned to the shift, so anyone
+      // viewing this department's schedule needs the same live-update as
+      // a direct assign/unassign would trigger
+      emitScheduleUpdated(shiftInfo.department_id, { reason: 'swap-approved', shiftId: swap.shift_id });
     }
 
     updated(res, null, `Swap request ${newStatus}.`);

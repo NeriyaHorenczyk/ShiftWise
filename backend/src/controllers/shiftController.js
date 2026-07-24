@@ -4,6 +4,7 @@ import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEma
 import { getSlot, toDateStr } from '../utils/slot.js';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction, TransactionError } from '../utils/transaction.js';
+import { emitScheduleUpdated } from '../services/socketService.js';
 
 export const getAllShifts = async (req, res) => {
   try {
@@ -202,6 +203,7 @@ export const createShift = async (req, res) => {
       [id, department_id, title, start_time, end_time, required_staff || 1, req.user.id]
     );
 
+    emitScheduleUpdated(department_id, { reason: 'created', shiftId: id });
     created(res, { id }, 'Shift created successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -246,6 +248,7 @@ export const updateShift = async (req, res) => {
       [title || null, start_time || null, end_time || null, required_staff || null, id]
     );
 
+    emitScheduleUpdated(shifts[0].department_id, { reason: 'updated', shiftId: id });
     updated(res, null, 'Shift updated successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -256,11 +259,12 @@ export const deleteShift = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [shifts] = await pool.query('SELECT id FROM shifts WHERE id = ?', [id]);
+    const [shifts] = await pool.query('SELECT id, department_id FROM shifts WHERE id = ?', [id]);
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
 
     await pool.query('DELETE FROM shifts WHERE id = ?', [id]);
+    emitScheduleUpdated(shifts[0].department_id, { reason: 'deleted', shiftId: id });
     deleted(res, 'Shift deleted successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -304,6 +308,7 @@ export const publishShift = async (req, res) => {
       sendEmail(emp.email, `Shift published — ${shifts[0].title}`, shiftPublishedEmail(emp.name, shifts[0]))
     ));
 
+    emitScheduleUpdated(shifts[0].department_id, { reason: 'published', shiftId: id });
     updated(res, null, 'Shift published successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -332,6 +337,7 @@ export const unpublishShift = async (req, res) => {
       sendEmail(emp.email, `Shift update — ${shifts[0].title}`, shiftUnpublishedEmail(emp.name, shifts[0]))
     ));
 
+    emitScheduleUpdated(shifts[0].department_id, { reason: 'unpublished', shiftId: id });
     updated(res, null, 'Shift unpublished successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -416,6 +422,7 @@ export const assignEmployee = async (req, res) => {
       throw err;
     }
 
+    emitScheduleUpdated(shifts[0].department_id, { reason: 'assigned', shiftId: id });
     created(res, null, 'Employee assigned successfully.');
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
@@ -666,6 +673,10 @@ export const autoAssign = async (req, res) => {
       });
     }
 
+    if (finalAssignments.length > 0) {
+      emitScheduleUpdated(department_id, { reason: 'auto-assigned' });
+    }
+
     success(res, {
       assigned: finalAssignments.length,
       noAvailability: availability.length === 0,
@@ -697,6 +708,9 @@ export const bulkClear = async (req, res) => {
       [department_id, week_start, week_start]
     );
 
+    if (result.affectedRows > 0) {
+      emitScheduleUpdated(department_id, { reason: 'bulk-cleared' });
+    }
     success(res, { deleted: result.affectedRows }, 'Draft shifts cleared.');
   } catch (err) {
     serverError(res, err.message);
@@ -763,6 +777,9 @@ export const bulkPublish = async (req, res) => {
       ));
     }
 
+    if (result.affectedRows > 0) {
+      emitScheduleUpdated(department_id, { reason: 'bulk-published' });
+    }
     success(res, { published: result.affectedRows, skipped: Number(skipped) }, 'Shifts published.');
   } catch (err) {
     serverError(res, err.message);
@@ -818,6 +835,9 @@ export const bulkUnpublish = async (req, res) => {
       ));
     }
 
+    if (result.affectedRows > 0) {
+      emitScheduleUpdated(department_id, { reason: 'bulk-unpublished' });
+    }
     success(res, { unpublished: result.affectedRows }, 'Shifts unpublished.');
   } catch (err) {
     serverError(res, err.message);
@@ -835,6 +855,9 @@ export const unassignEmployee = async (req, res) => {
 
     if (result.affectedRows === 0)
       return notFound(res, 'Assignment not found.');
+
+    const [[shift]] = await pool.query('SELECT department_id FROM shifts WHERE id = ?', [id]);
+    if (shift) emitScheduleUpdated(shift.department_id, { reason: 'unassigned', shiftId: id });
 
     deleted(res, 'Employee unassigned successfully.');
   } catch (err) {

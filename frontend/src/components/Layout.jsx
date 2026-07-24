@@ -21,6 +21,7 @@ import {
 import useAuth from '../hooks/useAuth';
 import useTheme from '../hooks/useTheme';
 import ConfirmModal from './ConfirmModal';
+import NotificationCenter from './NotificationCenter';
 import { getAssetUrl } from '../services/api';
 
 const navItems = [
@@ -187,6 +188,8 @@ const Layout = ({ children }) => {
           onCancel={() => setShowLogoutModal(false)}
         />
       )}
+
+      <NotificationCenter />
     </div>
   );
 };

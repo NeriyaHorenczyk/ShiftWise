@@ -6,10 +6,33 @@ const BASE_URL = 'http://localhost:3000';
 // that URL from, instead of each one re-templating BASE_URL separately.
 export const getAssetUrl = (path) => (path ? `${BASE_URL}${path}` : null);
 
+// Dedupes concurrent identical in-flight GETs (e.g. React StrictMode's
+// dev-only double-effect-invoke firing the same request twice back to
+// back) — it is NOT a data cache. An entry is removed the moment its
+// request settles (success or failure), so a later call for the same
+// endpoint — including a socket-driven live refetch — always reaches the
+// network instead of silently replaying a stale, already-resolved response.
 const promiseCache = new Map();
 
 export const clearApiCache = () => {
   promiseCache.clear();
+};
+
+// Endpoints a logged-out user legitimately hits and where a 401 is an
+// expected, in-form result (bad credentials) rather than a dead session —
+// these must never trigger the global forced-logout redirect below.
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/register'];
+
+const forceLogoutRedirect = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  sessionStorage.clear();
+  clearApiCache();
+  // A hard navigation, not client-side routing: this can be called from
+  // any request, including ones fired outside of React's render tree, and
+  // it guarantees every last bit of in-memory state (React, socket
+  // connections, anything else) is torn down along with the page itself.
+  window.location.href = '/login';
 };
 
 const request = async (endpoint, options = {}) => {
@@ -44,13 +67,17 @@ const request = async (endpoint, options = {}) => {
       // envelope (see backend/src/utils/response.js) — unwrap to the inner
       // payload so callers keep working with plain data, same as before.
       if (!response.ok) {
+        if (response.status === 401 && !AUTH_ENDPOINTS.includes(endpoint)) {
+          forceLogoutRedirect();
+        }
         throw new Error(body.message || 'Something went wrong.');
       }
 
       return body.data;
-    } catch (err) {
+    } finally {
+      // Cleared on both success and failure so the next call for this
+      // endpoint — however soon after — always hits the network fresh.
       if (isGet) promiseCache.delete(cacheKey);
-      throw err;
     }
   })();
 

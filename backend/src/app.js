@@ -62,8 +62,16 @@ app.use('/uploads', express.static(join(__dirname, '../uploads'), {
 // Public routes
 app.use('/auth', authRouter);
 
-// Protected routes — more routers added here as we build each layer
-app.use(authenticate);
+// Protected routes — more routers added here as we build each layer.
+// Socket.IO's own engine.io handshake (/socket.io/*) is attached directly to
+// the underlying http.Server (see server.js/socketService.js) and does its
+// own JWT auth via io.use() — it must never hit this REST-only middleware,
+// since its polling/upgrade requests carry the token in the handshake, not
+// as a bearer Authorization header, and would otherwise always 401 here.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  return authenticate(req, res, next);
+});
 
 app.use('/users', usersRouter);
 app.use('/departments', departmentsRouter);

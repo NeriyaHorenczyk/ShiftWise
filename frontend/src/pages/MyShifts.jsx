@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
+import useSocket from '../hooks/useSocket';
 import {
   getWeekStart,
   getWeekDays,
@@ -32,6 +33,7 @@ const LEADERSHIP_ROLES = ['lead', 'admin'];
 
 const MyShifts = () => {
   const { currentUser } = useAuth();
+  const { socket } = useSocket();
   const [viewMode, setViewMode] = useState('week'); // 'week' | 'month'
   // A single anchor date drives both views, so switching between Week and
   // Month never resets the currently-selected date/time window — each view
@@ -46,21 +48,24 @@ const MyShifts = () => {
   const weekDays = getWeekDays(weekStart);
   const monthWeeks = getMonthGridWeeks(monthStart);
 
+  // Fetches shifts for whatever window the current view actually displays —
+  // shared by the initial/view-change load below and the live socket refetch.
+  const fetchMyShiftsForCurrentView = () => {
+    if (viewMode === 'month') {
+      const weeks = getMonthGridWeeks(getMonthStart(anchorDate));
+      return api.getMyShifts({
+        start_date: toDateString(weeks[0][0]),
+        end_date: toDateString(weeks[weeks.length - 1][6]),
+      });
+    }
+    return api.getMyShifts({ week_start: toDateString(getWeekStart(anchorDate)) });
+  };
+
   useEffect(() => {
     const loadShifts = async () => {
       setLoading(true);
       try {
-        let data;
-        if (viewMode === 'month') {
-          const weeks = getMonthGridWeeks(getMonthStart(anchorDate));
-          data = await api.getMyShifts({
-            start_date: toDateString(weeks[0][0]),
-            end_date: toDateString(weeks[weeks.length - 1][6]),
-          });
-        } else {
-          data = await api.getMyShifts({ week_start: toDateString(getWeekStart(anchorDate)) });
-        }
-        setShifts(data);
+        setShifts(await fetchMyShiftsForCurrentView());
       } catch (err) {
         setError(err.message);
       } finally {
@@ -73,6 +78,25 @@ const MyShifts = () => {
     // render and must not be listed instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, anchorDate.getTime()]);
+
+  // Live collaborative sync: a lead publishing/editing/auto-assigning shifts
+  // in this employee's department (see socketService.js emitScheduleUpdated
+  // call sites) refetches "my shifts" automatically, same as Schedule.jsx
+  // does for the lead's own view. The department_id check is defense in
+  // depth — the server only ever emits to this department's room in the
+  // first place — so a stray event for a different department is a no-op.
+  useEffect(() => {
+    if (!socket || !currentUser?.department_id) return;
+
+    const handleScheduleUpdated = (payload) => {
+      if (payload.department_id !== currentUser.department_id) return;
+      fetchMyShiftsForCurrentView().then(setShifts).catch(err => setError(err.message));
+    };
+
+    socket.on('schedule:updated', handleScheduleUpdated);
+    return () => socket.off('schedule:updated', handleScheduleUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, currentUser?.department_id, viewMode, anchorDate.getTime()]);
 
   const prevWeek = () => setAnchorDate(d => {
     const n = new Date(d);

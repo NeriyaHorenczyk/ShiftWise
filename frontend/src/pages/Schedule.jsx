@@ -26,6 +26,7 @@ import MonthGrid from '../components/MonthGrid';
 import CalendarNav from '../components/CalendarNav';
 import AiCopilot from '../components/AiCopilot';
 import AuditModal from '../components/AuditModal';
+import useSocket from '../hooks/useSocket';
 import {
   splitIntoDaySegments,
   layoutColumns,
@@ -37,6 +38,7 @@ import {
 
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
+  const { socket } = useSocket();
 
   const canEdit = isLead;
   const canPickDept = isAdmin;
@@ -69,6 +71,10 @@ const Schedule = () => {
   const [auditReport, setAuditReport] = useState('');
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState('');
+
+  // Brief visual pulse when a schedule:updated event (see below) triggers a
+  // live refetch, so the update doesn't feel like a silent, invisible change.
+  const [justSynced, setJustSynced] = useState(false);
 
   const weekStart = getWeekStart(anchorDate);
   const monthStart = getMonthStart(anchorDate);
@@ -216,6 +222,27 @@ const Schedule = () => {
   const refreshShifts = async () => {
     setShifts(await fetchShiftsForCurrentView());
   };
+
+  // Live collaborative sync: any other user's shift create/update/delete/
+  // publish/assign/auto-assign (see socketService.js emitScheduleUpdated
+  // call sites) refetches this department's shifts automatically. The
+  // department_id check is defense in depth — the server only ever emits to
+  // that department's room in the first place — so a stray event for a
+  // different department can never trigger an unnecessary refetch here.
+  useEffect(() => {
+    if (!socket || !selectedDept) return;
+
+    const handleScheduleUpdated = (payload) => {
+      if (payload.department_id !== selectedDept) return;
+      refreshShifts();
+      setJustSynced(true);
+      setTimeout(() => setJustSynced(false), 900);
+    };
+
+    socket.on('schedule:updated', handleScheduleUpdated);
+    return () => socket.off('schedule:updated', handleScheduleUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, selectedDept, viewMode, anchorDate.getTime()]);
 
   const handleBulkClear = async () => {
     setBulkLoading(true);
@@ -431,6 +458,7 @@ const Schedule = () => {
       {error && <div className="page-error">{error}</div>}
 
       {/* Grid */}
+      <div className={justSynced ? 'schedule-flash' : ''}>
       {loading ? (
         <div className="page-loading">Loading schedule...</div>
       ) : viewMode === 'month' ? (
@@ -490,6 +518,7 @@ const Schedule = () => {
           })}
         />
       )}
+      </div>
 
       {/* Create shift modal */}
       {showCreateModal && (
@@ -498,7 +527,11 @@ const Schedule = () => {
           departmentId={selectedDept}
           onClose={() => setShowCreateModal(false)}
           onCreated={(newShift) => {
-            setShifts(prev => [...prev, newShift]);
+            // The creator is in their own department's room, so the
+            // schedule:updated broadcast this same create triggers may well
+            // land (and refetch) before this callback runs — append only if
+            // that refetch hasn't already brought the new shift in.
+            setShifts(prev => prev.some(s => s.id === newShift.id) ? prev : [...prev, newShift]);
             setShowCreateModal(false);
           }}
         />

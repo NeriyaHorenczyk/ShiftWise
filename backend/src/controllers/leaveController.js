@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { emitLeaveStatusChanged } from '../services/socketService.js';
 
 export const getLeaveRequests = async (req, res) => {
   try {
@@ -149,6 +150,14 @@ export const reviewLeaveRequest = async (req, res) => {
        WHERE id = ?`,
       [newStatus, req.user.id, lead_comment || null, id]
     );
+
+    emitLeaveStatusChanged(leave.user_id, {
+      leaveId: id,
+      status: newStatus,
+      lead_comment: lead_comment || null,
+      start_date: leave.start_date,
+      end_date: leave.end_date,
+    });
 
     updated(res, null, `Leave request ${newStatus}.`);
   } catch (err) {

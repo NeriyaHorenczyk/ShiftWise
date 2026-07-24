@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuth from './hooks/useAuth';
 import Layout from './components/Layout';
+import { isTokenExpired } from './utils/jwt';
 
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -19,8 +21,17 @@ import Profile from './pages/Profile';
 import Blueprint from './pages/Blueprint';
 
 const ProtectedRoute = ({ children }) => {
-  const { token } = useAuth();
-  if (!token) return <Navigate to="/login" replace />;
+  const { token, logout } = useAuth();
+  const valid = token && !isTokenExpired(token);
+
+  // A present-but-expired token never renders protected content, but the
+  // stale value in storage still needs scrubbing — that's a state update,
+  // so it happens in an effect, after the redirect below has already committed.
+  useEffect(() => {
+    if (token && !valid) logout();
+  }, [token, valid, logout]);
+
+  if (!valid) return <Navigate to="/login" replace />;
   return <Layout>{children}</Layout>;
 };
 
