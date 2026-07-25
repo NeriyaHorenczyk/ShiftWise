@@ -40,6 +40,7 @@ CREATE TABLE shifts (
   start_time DATETIME NOT NULL,
   end_time DATETIME NOT NULL,
   required_staff INT DEFAULT 1,
+  needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
   status ENUM('draft', 'published') DEFAULT 'draft',
   created_by CHAR(36),
   deleted_at DATETIME DEFAULT NULL,
@@ -148,4 +149,30 @@ CREATE TABLE blueprint_presets (
   required_staff INT NOT NULL DEFAULT 1,
   needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
   FOREIGN KEY (blueprint_id) REFERENCES shift_blueprints(id) ON DELETE CASCADE
+);
+
+-- A named snapshot of an entire weekly template's shift layout (all 7 days),
+-- distinct from blueprint_presets (a single reusable shift slot) — this is
+-- "save/load the whole grid under a name".
+CREATE TABLE weekly_templates (
+  id CHAR(36) PRIMARY KEY,
+  blueprint_id CHAR(36) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  created_by CHAR(36),
+  created_at DATETIME DEFAULT NOW(),
+  UNIQUE (blueprint_id, name),
+  FOREIGN KEY (blueprint_id) REFERENCES shift_blueprints(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE weekly_template_shifts (
+  id CHAR(36) PRIMARY KEY,
+  template_id CHAR(36) NOT NULL,
+  day_of_week TINYINT NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  required_staff INT NOT NULL DEFAULT 1,
+  needs_shift_manager BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (template_id) REFERENCES weekly_templates(id) ON DELETE CASCADE
 );

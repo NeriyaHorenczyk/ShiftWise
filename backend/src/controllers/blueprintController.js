@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuid } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, serverError } from '../utils/response.js';
+import { withTransaction } from '../utils/transaction.js';
 
 const toYMD = (d) => {
   if (!d) return null;
@@ -178,6 +179,13 @@ export const addBlueprintOverride = async (req, res) => {
       return validationError(res, 'override_date and label are required.');
     }
 
+    // Compare as plain YYYY-MM-DD strings (both already date-only, no time
+    // component) so this can't be thrown off by timezone conversion —
+    // toYMD() below builds "today" from local date parts for the same reason.
+    if (override_date < toYMD(new Date())) {
+      return validationError(res, 'Cannot create or modify date overrides for past dates.');
+    }
+
     const deptId = await getUserDeptId(req.user.id);
     const [[bp]] = await pool.query(
       'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
@@ -319,6 +327,154 @@ export const removePreset = async (req, res) => {
       [req.params.presetId, req.params.id]
     );
     deleted(res, 'Preset removed.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+// Named snapshots of the ENTIRE weekly template grid (all 7 days' shift
+// slots) — distinct from blueprint_presets, which is a single reusable
+// shift slot offered as a shortcut inside the "add shift" modals.
+
+// GET /blueprints/:id/templates
+export const listWeeklyTemplates = async (req, res) => {
+  try {
+    const deptId = await getUserDeptId(req.user.id);
+    const [[bp]] = await pool.query(
+      'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
+      [req.params.id, deptId]
+    );
+    if (!bp) return notFound(res, 'Blueprint not found.');
+
+    const [templates] = await pool.query(
+      `SELECT t.id, t.name, t.created_at, COUNT(s.id) AS shift_count
+       FROM weekly_templates t
+       LEFT JOIN weekly_template_shifts s ON s.template_id = t.id
+       WHERE t.blueprint_id = ?
+       GROUP BY t.id
+       ORDER BY t.created_at DESC`,
+      [req.params.id]
+    );
+    if (templates.length === 0) return noData(res, 'No saved weekly templates.', templates);
+    success(res, templates);
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+// POST /blueprints/:id/templates — snapshot the CURRENT weekly template
+// grid (blueprint_shifts) into a new named, standalone copy.
+export const saveWeeklyTemplate = async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return validationError(res, 'name is required.');
+
+    const deptId = await getUserDeptId(req.user.id);
+    const [[bp]] = await pool.query(
+      'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
+      [req.params.id, deptId]
+    );
+    if (!bp) return notFound(res, 'Blueprint not found.');
+
+    const [currentShifts] = await pool.query(
+      `SELECT day_of_week, title, start_time, end_time, required_staff, needs_shift_manager
+       FROM blueprint_shifts WHERE blueprint_id = ?`,
+      [req.params.id]
+    );
+
+    const templateId = uuid();
+    try {
+      await pool.query(
+        'INSERT INTO weekly_templates (id, blueprint_id, name, created_by) VALUES (?, ?, ?, ?)',
+        [templateId, req.params.id, name.trim(), req.user.id]
+      );
+    } catch (err) {
+      if (err.errno === 1062) return conflict(res, 'A template with this name already exists.');
+      throw err;
+    }
+
+    if (currentShifts.length > 0) {
+      const rows = currentShifts.map(s => [
+        uuid(), templateId, s.day_of_week, s.title, s.start_time, s.end_time,
+        s.required_staff, s.needs_shift_manager ? 1 : 0,
+      ]);
+      await pool.query(
+        `INSERT INTO weekly_template_shifts
+         (id, template_id, day_of_week, title, start_time, end_time, required_staff, needs_shift_manager)
+         VALUES ?`,
+        [rows]
+      );
+    }
+
+    created(res, { id: templateId, name: name.trim(), shift_count: currentShifts.length }, 'Weekly template saved.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+// POST /blueprints/:id/templates/:templateId/apply — replace the CURRENT
+// weekly template grid with a fresh copy of the saved template's shifts.
+export const applyWeeklyTemplate = async (req, res) => {
+  try {
+    const deptId = await getUserDeptId(req.user.id);
+    const [[bp]] = await pool.query(
+      'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
+      [req.params.id, deptId]
+    );
+    if (!bp) return notFound(res, 'Blueprint not found.');
+
+    const [[template]] = await pool.query(
+      'SELECT id FROM weekly_templates WHERE id = ? AND blueprint_id = ?',
+      [req.params.templateId, req.params.id]
+    );
+    if (!template) return notFound(res, 'Weekly template not found.');
+
+    const [templateShifts] = await pool.query(
+      `SELECT day_of_week, title, start_time, end_time, required_staff, needs_shift_manager
+       FROM weekly_template_shifts WHERE template_id = ?`,
+      [req.params.templateId]
+    );
+
+    // Swapping out the whole grid must be all-or-nothing — a failure
+    // partway through would otherwise leave the department with a blank
+    // template until the next fix, since the old slots are already gone.
+    await withTransaction(async (conn) => {
+      await conn.query('DELETE FROM blueprint_shifts WHERE blueprint_id = ?', [req.params.id]);
+      if (templateShifts.length > 0) {
+        const rows = templateShifts.map(s => [
+          uuid(), req.params.id, s.day_of_week, s.title, s.start_time, s.end_time,
+          s.required_staff, s.needs_shift_manager ? 1 : 0,
+        ]);
+        await conn.query(
+          `INSERT INTO blueprint_shifts
+           (id, blueprint_id, day_of_week, title, start_time, end_time, required_staff, needs_shift_manager)
+           VALUES ?`,
+          [rows]
+        );
+      }
+    });
+
+    success(res, { applied: templateShifts.length }, 'Weekly template applied.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+// DELETE /blueprints/:id/templates/:templateId
+export const deleteWeeklyTemplate = async (req, res) => {
+  try {
+    const deptId = await getUserDeptId(req.user.id);
+    const [[bp]] = await pool.query(
+      'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
+      [req.params.id, deptId]
+    );
+    if (!bp) return notFound(res, 'Blueprint not found.');
+
+    await pool.query(
+      'DELETE FROM weekly_templates WHERE id = ? AND blueprint_id = ?',
+      [req.params.templateId, req.params.id]
+    );
+    deleted(res, 'Weekly template deleted.');
   } catch (err) {
     serverError(res, err.message);
   }

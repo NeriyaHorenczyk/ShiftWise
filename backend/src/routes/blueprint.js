@@ -12,6 +12,10 @@ import {
   removeOverrideShift,
   addPreset,
   removePreset,
+  listWeeklyTemplates,
+  saveWeeklyTemplate,
+  applyWeeklyTemplate,
+  deleteWeeklyTemplate,
   generateShifts,
 } from '../controllers/blueprintController.js';
 
@@ -31,6 +35,11 @@ router.delete('/:id/overrides/:ovId/shifts/:shiftId', requireRole('lead'), remov
 
 router.post('/:id/presets', requireRole('lead'), addPreset);
 router.delete('/:id/presets/:presetId', requireRole('lead'), removePreset);
+
+router.get('/:id/templates', requireRole('lead'), listWeeklyTemplates);
+router.post('/:id/templates', requireRole('lead'), saveWeeklyTemplate);
+router.post('/:id/templates/:templateId/apply', requireRole('lead'), applyWeeklyTemplate);
+router.delete('/:id/templates/:templateId', requireRole('lead'), deleteWeeklyTemplate);
 
 router.post('/:id/generate', requireRole('lead'), generateShifts);
 

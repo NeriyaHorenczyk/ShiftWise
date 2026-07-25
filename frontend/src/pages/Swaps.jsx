@@ -4,7 +4,7 @@ import useAuth from '../hooks/useAuth';
 import Pagination from '../components/Pagination';
 import { LuArrowLeftRight, LuCheck, LuX, LuSearch } from 'react-icons/lu';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 8;
 
 const STATUS_LABELS = {
   pending: 'Pending',

@@ -3,6 +3,9 @@ import { LuSearch } from 'react-icons/lu';
 import { api, getAssetUrl } from '../../services/api';
 import useAuth from '../../hooks/useAuth';
 import ConfirmModal from '../../components/ConfirmModal';
+import Pagination from '../../components/Pagination';
+
+const PAGE_SIZE = 15;
 
 const ROLE_LABELS = {
   employee: 'Employee',
@@ -24,7 +27,9 @@ const AdminUsers = () => {
   const { currentUser } = useAuth();
   const refreshRef = useRef(null);
 
-  const [allUsers, setAllUsers] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
   const [search, setSearch] = useState('');
@@ -38,36 +43,53 @@ const AdminUsers = () => {
   const [modalLoading, setModalLoading] = useState(false);
 
   const [confirmDelete, setConfirmDelete] = useState(null);
+  // Only the very first fetch shows the full-page loader — a search
+  // keystroke or page-turn re-runs the fetch effect below too, and flipping
+  // `loading` back to true for those would unmount this whole tree (inputs
+  // included), stealing focus out of the search box mid-keystroke.
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
-    const loadAll = async () => {
-      setLoading(true);
-      try {
-        const [users, depts] = await Promise.all([api.getUsers(), api.getDepartments()]);
-        setAllUsers(users);
-        setDepartments(depts);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    refreshRef.current = loadAll;
-    loadAll();
+    api.getDepartments().then(setDepartments).catch(err => setError(err.message));
   }, []);
 
-  const filtered = allUsers
-    .filter(u => u.id !== currentUser?.id)
-    .filter(u => selectedDept === '' || u.department_id === selectedDept)
-    .filter(u => {
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      return (
-        u.name?.toLowerCase().includes(q) ||
-        u.username?.toLowerCase().includes(q) ||
-        u.email?.toLowerCase().includes(q)
-      );
-    });
+  useEffect(() => {
+    // Every keystroke in the search box re-runs this effect, firing a new
+    // request before the previous one may have resolved. Without this
+    // guard, an in-flight request for an earlier (now-stale) search term
+    // could resolve after the latest one and clobber the correct results.
+    let cancelled = false;
+
+    const loadUsers = async () => {
+      if (!hasLoadedOnce.current) setLoading(true);
+      try {
+        const data = await api.getUsers({
+          ...(selectedDept ? { department_id: selectedDept } : {}),
+          ...(search.trim() ? { search: search.trim() } : {}),
+          exclude_id: currentUser?.id,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        });
+        if (cancelled) return;
+        // The endpoint is opt-in paginated: passing `limit` (always true
+        // here) switches its response to { items, total, limit, offset }.
+        setUsers(data.items);
+        setTotal(data.total);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
+      }
+    };
+
+    refreshRef.current = loadUsers;
+    loadUsers();
+
+    return () => { cancelled = true; };
+  }, [selectedDept, search, page, currentUser?.id]);
 
   const getDeptName = (deptId) => departments.find(d => d.id === deptId)?.name ?? '—';
 
@@ -128,7 +150,7 @@ const AdminUsers = () => {
           <div>
             <h2>Users</h2>
             <p className="page-subtitle">
-              {allUsers.length} users across {departments.length} departments
+              {total} user{total === 1 ? '' : 's'} across {departments.length} departments
             </p>
           </div>
         </div>
@@ -142,13 +164,13 @@ const AdminUsers = () => {
             className="search-input"
             placeholder="Search by name, username or email…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
           />
         </div>
         <select
           className="dept-select"
           value={selectedDept}
-          onChange={e => setSelectedDept(e.target.value)}
+          onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
         >
           <option value="">All Departments</option>
           {departments.map(d => (
@@ -163,10 +185,10 @@ const AdminUsers = () => {
         <div className="page-loading">Loading users…</div>
       ) : (
         <div className="team-list">
-          {filtered.length === 0 ? (
+          {users.length === 0 ? (
             <p className="empty-state">No users match the current filter.</p>
           ) : (
-            filtered.map(user => (
+            users.map(user => (
               <div key={user.id} className="team-card">
                 <div className="team-card-left">
                   <div className="team-avatar">
@@ -215,6 +237,8 @@ const AdminUsers = () => {
           )}
         </div>
       )}
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
 
       {editingUser && (
         <div className="modal-overlay" onClick={() => setEditingUser(null)}>

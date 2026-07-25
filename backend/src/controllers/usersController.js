@@ -4,14 +4,19 @@ import { success, updated, deleted, noData, notFound, conflict, validationError,
 
 export const getAllUsers = async (req, res) => {
   try {
-    const { department_id, search, role, limit, offset } = req.query;
+    const { department_id, search, role, exclude_id, limit, offset } = req.query;
     const conditions = ['deleted_at IS NULL'];
     const params = [];
     let columns;
 
     if (req.user.role === 'admin') {
       columns = 'id, username, email, name, role, department_id, avatar_url, created_at';
-      if (department_id) {
+      // 'unassigned' is a frontend-only sentinel (Team.jsx's "Unassigned"
+      // filter tab) — a real department is always a UUID, so it can never
+      // collide with one.
+      if (department_id === 'unassigned') {
+        conditions.push('department_id IS NULL');
+      } else if (department_id) {
         conditions.push('department_id = ?');
         params.push(department_id);
       }
@@ -25,11 +30,12 @@ export const getAllUsers = async (req, res) => {
       params.push(req.user.id);
     }
 
-    // Only admin/lead roster views (e.g. Team Availability) ever pass these.
+    // Only admin/lead roster views (e.g. Team Availability, admin Users)
+    // ever pass these.
     if (search && ['admin', 'lead'].includes(req.user.role)) {
-      conditions.push('(name LIKE ? OR username LIKE ?)');
+      conditions.push('(name LIKE ? OR username LIKE ? OR email LIKE ?)');
       const like = `%${search}%`;
-      params.push(like, like);
+      params.push(like, like, like);
     }
     if (role && ['admin', 'lead'].includes(req.user.role)) {
       const roles = role.split(',').filter(Boolean);
@@ -37,6 +43,11 @@ export const getAllUsers = async (req, res) => {
         conditions.push(`role IN (${roles.map(() => '?').join(',')})`);
         params.push(...roles);
       }
+    }
+    // admin Users.jsx excludes the viewing admin from their own user list
+    if (exclude_id && req.user.role === 'admin') {
+      conditions.push('id != ?');
+      params.push(exclude_id);
     }
 
     const whereClause = conditions.join(' AND ');

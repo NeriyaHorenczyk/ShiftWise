@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LuPlus, LuTrash2, LuCalendarCheck, LuZap, LuBookmark } from 'react-icons/lu';
+import { LuPlus, LuTrash2, LuCalendarCheck, LuZap, LuBookmark, LuSave, LuFolderOpen } from 'react-icons/lu';
 import { api } from '../services/api';
 import { getWeekStart, toDateString, formatWeekRange } from '../utils/dateUtils';
+import ConfirmModal from '../components/ConfirmModal';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -108,15 +109,76 @@ const ShiftSlotFormModal = ({ modalTitle, presets, onSubmit, onClose }) => {
   );
 };
 
-// ── Add Override Modal ───────────────────────────────────────────────────────
-const AddOverrideModal = ({ blueprintId, onClose, onAdded }) => {
-  const [form, setForm] = useState({ override_date: '', label: '' });
+// ── Save Weekly Template Modal ───────────────────────────────────────────────
+const SaveTemplateModal = ({ onSubmit, onClose }) => {
+  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
+    try {
+      await onSubmit(name.trim());
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3 className="modal-title">Save as Weekly Template</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
+          Snapshots the current weekly template grid (all 7 days) under a name you can reload later.
+        </p>
+        <form onSubmit={handleSubmit}>
+          {error && <div className="error-message">{error}</div>}
+          <div className="form-group">
+            <label>Template name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              placeholder="e.g. Summer Schedule"
+              autoFocus
+            />
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={loading || !name.trim()}>
+              {loading ? 'Saving…' : 'Save Template'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ── Add Override Modal ───────────────────────────────────────────────────────
+const AddOverrideModal = ({ blueprintId, onClose, onAdded }) => {
+  const [form, setForm] = useState({ override_date: '', label: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const todayStr = toDateString(new Date());
+  const isPastDate = form.override_date !== '' && form.override_date < todayStr;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    // Belt-and-suspenders against the `min` attribute being bypassed (some
+    // browsers still accept a manually typed date outside the allowed
+    // range) — the backend re-validates this regardless, but failing fast
+    // client-side avoids a round trip for the common case.
+    if (isPastDate) {
+      setError('Cannot create or modify date overrides for past dates.');
+      return;
+    }
     setLoading(true);
     try {
       await api.addBlueprintOverride(blueprintId, form);
@@ -138,7 +200,18 @@ const AddOverrideModal = ({ blueprintId, onClose, onAdded }) => {
           {error && <div className="error-message">{error}</div>}
           <div className="form-group">
             <label>Date</label>
-            <input type="date" value={form.override_date} onChange={e => setForm(p => ({ ...p, override_date: e.target.value }))} required />
+            <input
+              type="date"
+              min={todayStr}
+              value={form.override_date}
+              onChange={e => setForm(p => ({ ...p, override_date: e.target.value }))}
+              required
+            />
+            {isPastDate && (
+              <p className="error-message" style={{ marginTop: '0.5rem' }}>
+                Cannot create or modify date overrides for past dates.
+              </p>
+            )}
           </div>
           <div className="form-group">
             <label>Label</label>
@@ -146,7 +219,7 @@ const AddOverrideModal = ({ blueprintId, onClose, onAdded }) => {
           </div>
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Adding…' : 'Add Override'}</button>
+            <button type="submit" className="btn btn-primary" disabled={loading || isPastDate}>{loading ? 'Adding…' : 'Add Override'}</button>
           </div>
         </form>
       </div>
@@ -199,6 +272,11 @@ const Blueprint = () => {
   const [addOverrideShiftId, setAddOverrideShiftId] = useState(null);
   // presets
   const [showAddPreset, setShowAddPreset] = useState(false);
+  // weekly templates (named snapshots of the whole grid)
+  const [templates, setTemplates] = useState([]);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [applyTemplateId, setApplyTemplateId] = useState(null); // pending confirm
+  const [templateError, setTemplateError] = useState('');
 
   const [weekToGenerate, setWeekToGenerate] = useState(() => toDateString(getWeekStart()));
   const [generating, setGenerating] = useState(false);
@@ -223,6 +301,25 @@ const Blueprint = () => {
     refreshRef.current = load;
     load();
   }, []);
+
+  const templatesRefreshRef = useRef(null);
+
+  // Loaded once the blueprint itself is available — kept separate from the
+  // main blueprint load since saving/deleting a template shouldn't need to
+  // refetch the whole grid, and vice versa.
+  useEffect(() => {
+    if (!blueprint?.id) return;
+    const loadTemplates = async () => {
+      try {
+        const list = await api.listWeeklyTemplates(blueprint.id);
+        setTemplates(list);
+      } catch (err) {
+        setTemplateError(err.message);
+      }
+    };
+    templatesRefreshRef.current = loadTemplates;
+    loadTemplates();
+  }, [blueprint?.id]);
 
   const handleCreate = async () => {
     setError('');
@@ -249,6 +346,33 @@ const Blueprint = () => {
       refreshRef.current?.();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const handleSaveTemplate = async (name) => {
+    await api.saveWeeklyTemplate(blueprint.id, { name });
+    setShowSaveTemplateModal(false);
+    templatesRefreshRef.current?.();
+  };
+
+  const handleApplyTemplate = async () => {
+    const templateId = applyTemplateId;
+    setApplyTemplateId(null);
+    setTemplateError('');
+    try {
+      await api.applyWeeklyTemplate(blueprint.id, templateId);
+      refreshRef.current?.();
+    } catch (err) {
+      setTemplateError(err.message);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId) => {
+    try {
+      await api.deleteWeeklyTemplate(blueprint.id, templateId);
+      templatesRefreshRef.current?.();
+    } catch (err) {
+      setTemplateError(err.message);
     }
   };
 
@@ -358,9 +482,46 @@ const Blueprint = () => {
           {/* ── Weekly template ── */}
           <section className="blueprint-section">
             <div className="blueprint-section-header">
-              <h3 className="blueprint-section-title">Weekly Template</h3>
-              <p className="blueprint-section-hint">Click <strong>+</strong> on any day to add a recurring shift slot.</p>
+              <div>
+                <h3 className="blueprint-section-title">Weekly Template</h3>
+                <p className="blueprint-section-hint">Click <strong>+</strong> on any day to add a recurring shift slot.</p>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowSaveTemplateModal(true)}>
+                <LuSave size={14} /> Save as Template
+              </button>
             </div>
+
+            {templateError && <div className="error-message" style={{ marginBottom: '1rem' }}>{templateError}</div>}
+
+            {templates.length > 0 && (
+              <div className="bp-presets-grid" style={{ marginBottom: '1rem' }}>
+                {templates.map(t => (
+                  <div key={t.id} className="bp-preset-card">
+                    <div className="bp-preset-body">
+                      <span className="bp-shift-title">{t.name}</span>
+                      <span className="bp-shift-time">{t.shift_count} shift{t.shift_count !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setApplyTemplateId(t.id)}
+                        title="Load this template into the grid below"
+                      >
+                        <LuFolderOpen size={13} /> Load
+                      </button>
+                      <button
+                        className="icon-btn-danger"
+                        onClick={() => handleDeleteTemplate(t.id)}
+                        title="Delete template"
+                      >
+                        <LuTrash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="schedule-grid">
               {DAY_NAMES.map((name, i) => (
                 <div key={i} className="schedule-day">
@@ -520,6 +681,26 @@ const Blueprint = () => {
             refreshRef.current?.();
           }}
           onClose={() => setAddOverrideShiftId(null)}
+        />
+      )}
+
+      {/* Save current grid as a named weekly template */}
+      {showSaveTemplateModal && (
+        <SaveTemplateModal
+          onSubmit={handleSaveTemplate}
+          onClose={() => setShowSaveTemplateModal(false)}
+        />
+      )}
+
+      {/* Confirm before replacing the current grid with a saved template */}
+      {applyTemplateId && (
+        <ConfirmModal
+          title="Load weekly template"
+          message={`Replace the current weekly template grid with "${templates.find(t => t.id === applyTemplateId)?.name}"? This overwrites every day's shifts below and cannot be undone.`}
+          confirmLabel="Load template"
+          danger
+          onConfirm={handleApplyTemplate}
+          onCancel={() => setApplyTemplateId(null)}
         />
       )}
     </div>

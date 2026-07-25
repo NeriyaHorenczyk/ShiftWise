@@ -260,7 +260,16 @@ const PAGE_SIZE = 15;
 const TeamAvailability = () => {
   const { currentUser, isAdmin } = useAuth();
   const { socket } = useSocket();
-  const [weekStart, setWeekStart] = useState(getWeekStart());
+  // The single source of truth for "what date are we looking at" — week and
+  // month navigation both move this one anchor (by 7 days or by a whole
+  // calendar month respectively) and weekStart is always freshly derived
+  // from it below. Previously weekStart itself was the stored state and
+  // month-nav fed it back through addMonths(); because weekStart is a
+  // Sunday (not necessarily the 1st), that round-trip could land back on
+  // the same week (>> appearing to do nothing) or skip an extra week (<<
+  // appearing to jump 2 months) depending on which weekday the 1st fell on.
+  const [anchorDate, setAnchorDate] = useState(new Date());
+  const weekStart = getWeekStart(anchorDate);
   const [employees, setEmployees] = useState([]);
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [page, setPage] = useState(0);
@@ -336,12 +345,13 @@ const TeamAvailability = () => {
     };
     load();
     return () => { cancelledRef.current = true; };
-    // weekStart identity changes every render (new Date from prevWeek/nextWeek),
-    // but the fetch itself only needs the string it derives — loadTeamAvailability
-    // is intentionally left out of deps since it's redefined every render anyway
-    // and always closes over the current weekStart/selectedDept/search/page.
+    // anchorDate.getTime() (a primitive) is the real dependency here — the
+    // fetch itself only needs the week_start string weekStart derives from
+    // it. loadTeamAvailability is intentionally left out of deps since it's
+    // redefined every render anyway and always closes over the current
+    // weekStart/selectedDept/search/page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, selectedDept, search, page]);
+  }, [anchorDate.getTime(), selectedDept, search, page]);
 
   // Live collaborative sync: an employee submitting/editing/clearing their
   // availability (see socketService.js emitAvailabilityUpdated call sites)
@@ -361,27 +371,30 @@ const TeamAvailability = () => {
     socket.on('availability:updated', handleAvailabilityUpdated);
     return () => socket.off('availability:updated', handleAvailabilityUpdated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, currentUser?.department_id, weekStart, selectedDept, search, page]);
+  }, [socket, currentUser?.department_id, anchorDate.getTime(), selectedDept, search, page]);
 
   const prevWeek = () => {
-    const d = new Date(weekStart);
+    const d = new Date(anchorDate);
     d.setDate(d.getDate() - 7);
-    setWeekStart(d);
+    setAnchorDate(d);
   };
 
   const nextWeek = () => {
-    const d = new Date(weekStart);
+    const d = new Date(anchorDate);
     d.setDate(d.getDate() + 7);
-    setWeekStart(d);
+    setAnchorDate(d);
   };
 
-  // Jump a whole month at a time — lands on the Sunday of the week
-  // containing the 1st of the target month, same as the week nav would if
-  // you clicked through week by week.
-  const prevMonth = () => setWeekStart(w => getWeekStart(addMonths(w, -1)));
-  const nextMonth = () => setWeekStart(w => getWeekStart(addMonths(w, 1)));
+  // Jump exactly one calendar month at a time. addMonths always pins the
+  // day to 1 before adjusting the month, so chaining these never rolls over
+  // (e.g. Mar 31 -> Apr 31 becoming May) and — since anchorDate (not the
+  // Sunday-snapped weekStart) is what's being shifted — every click moves
+  // exactly one month with no drift. weekStart re-derives from the new
+  // anchor on the next render, landing on the first week of that month.
+  const prevMonth = () => setAnchorDate(d => addMonths(d, -1));
+  const nextMonth = () => setAnchorDate(d => addMonths(d, 1));
 
-  const goToToday = () => setWeekStart(getWeekStart());
+  const goToToday = () => setAnchorDate(new Date());
 
   // grid[username][day_of_week][slot] = status
   const grid = {};

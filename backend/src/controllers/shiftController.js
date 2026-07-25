@@ -23,9 +23,9 @@ export const getAllShifts = async (req, res) => {
     }
 
     let query = `
-      SELECT 
+      SELECT
         s.id, s.title, s.start_time, s.end_time,
-        s.required_staff, s.status,
+        s.required_staff, s.needs_shift_manager, s.status,
         d.name AS department_name,
         u.name AS created_by_name,
         COUNT(sa.user_id) AS assigned_count
@@ -70,8 +70,9 @@ export const getAllShifts = async (req, res) => {
     query += ' GROUP BY s.id ORDER BY s.start_time ASC';
 
     const [rows] = await pool.query(query, params);
-    if (rows.length === 0) return noData(res, 'No shifts found.', rows);
-    success(res, rows);
+    const shifts = rows.map(s => ({ ...s, needs_shift_manager: !!s.needs_shift_manager }));
+    if (shifts.length === 0) return noData(res, 'No shifts found.', shifts);
+    success(res, shifts);
   } catch (err) {
     serverError(res, err.message);
   }
@@ -82,7 +83,7 @@ export const getShiftById = async (req, res) => {
     const [shifts] = await pool.query(`
       SELECT
         s.id, s.title, s.start_time, s.end_time,
-        s.required_staff, s.status, s.department_id,
+        s.required_staff, s.needs_shift_manager, s.status, s.department_id,
         d.name AS department_name,
         u.name AS created_by_name
       FROM shifts s
@@ -90,6 +91,7 @@ export const getShiftById = async (req, res) => {
       LEFT JOIN users u ON s.created_by = u.id
       WHERE s.id = ? AND s.deleted_at IS NULL
     `, [req.params.id]);
+    if (shifts[0]) shifts[0].needs_shift_manager = !!shifts[0].needs_shift_manager;
 
     if (shifts.length === 0)
       return notFound(res, 'Shift not found.');
@@ -167,7 +169,7 @@ export const getMyShifts = async (req, res) => {
 
 export const createShift = async (req, res) => {
   try {
-    const { department_id, title, start_time, end_time, required_staff } = req.body;
+    const { department_id, title, start_time, end_time, required_staff, needs_shift_manager } = req.body;
 
     if (!department_id || !title || !start_time || !end_time)
       return validationError(res, 'department_id, title, start_time and end_time are required.');
@@ -199,9 +201,9 @@ export const createShift = async (req, res) => {
 
     const id = uuidv4();
     await pool.query(
-      `INSERT INTO shifts (id, department_id, title, start_time, end_time, required_staff, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, department_id, title, start_time, end_time, required_staff || 1, req.user.id]
+      `INSERT INTO shifts (id, department_id, title, start_time, end_time, required_staff, needs_shift_manager, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, department_id, title, start_time, end_time, required_staff || 1, needs_shift_manager ? 1 : 0, req.user.id]
     );
 
     emitScheduleUpdated(department_id, { reason: 'created', shiftId: id });

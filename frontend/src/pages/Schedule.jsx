@@ -512,6 +512,7 @@ const Schedule = () => {
                     <LuUsers size={11} />
                     {shift.assigned_count}/{shift.required_staff}
                   </span>
+                  {shift.needs_shift_manager && <span className="sm-badge">SM</span>}
                   <span className={`badge badge-${shift.status}`}>{shift.status}</span>
                 </div>
               </div>
@@ -612,17 +613,46 @@ const Schedule = () => {
 };
 
 // ── Create Shift Modal ──────────────────────────────
+// A blueprint preset's time columns come back as MySQL TIME strings
+// ("09:00:00"); <input type="time"> needs "HH:MM".
+const toTimeInputValue = (t) => (t ? t.slice(0, 5) : '');
+
 const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
   const [form, setForm] = useState({
     title: '',
     start_time: '',
     end_time: '',
     required_staff: 1,
+    needs_shift_manager: false,
   });
+  const [presets, setPresets] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const dateStr = toDateString(day);
+
+  // The department's saved Shift Presets (managed on the Blueprint page) —
+  // shown as one-click shortcuts so a lead doesn't have to retype the same
+  // handful of shift shapes (Morning/Afternoon/Evening…) every time.
+  // Presets are department-scoped and this modal only ever opens for a
+  // lead's own department, so no department_id override is needed here —
+  // the backend derives it from the requesting lead's own user record,
+  // same as the Blueprint page itself.
+  useEffect(() => {
+    api.getBlueprint()
+      .then(data => setPresets(data?.presets || []))
+      .catch(() => setPresets([]));
+  }, []);
+
+  const handlePresetClick = (preset) => {
+    setForm({
+      title: preset.title,
+      start_time: toTimeInputValue(preset.start_time),
+      end_time: toTimeInputValue(preset.end_time),
+      required_staff: preset.required_staff,
+      needs_shift_manager: preset.needs_shift_manager,
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -635,6 +665,7 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
         start_time: `${dateStr} ${form.start_time}:00`,
         end_time: `${dateStr} ${form.end_time}:00`,
         required_staff: form.required_staff,
+        needs_shift_manager: form.needs_shift_manager,
       });
 
       // fetch the created shift to get full data
@@ -655,6 +686,29 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
           <h3 className="modal-title">New shift — {formatDay(day)}</h3>
           <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
         </div>
+
+        {presets.length > 0 && (
+          <div className="preset-picker">
+            <p className="preset-picker-label">Saved presets</p>
+            <div className="preset-picker-list">
+              {presets.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="preset-chip"
+                  onClick={() => handlePresetClick(p)}
+                  disabled={loading}
+                >
+                  <span className="preset-chip-title">{p.title}</span>
+                  <span className="preset-chip-detail">
+                    {toTimeInputValue(p.start_time)}–{toTimeInputValue(p.end_time)} · {p.required_staff} staff{p.needs_shift_manager ? ' · SM' : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="preset-divider"><span>or fill manually</span></div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -696,6 +750,16 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
               onChange={e => setForm(p => ({ ...p, required_staff: parseInt(e.target.value) }))}
               required
             />
+          </div>
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={form.needs_shift_manager}
+                onChange={e => setForm(p => ({ ...p, needs_shift_manager: e.target.checked }))}
+              />
+              Needs shift manager
+            </label>
           </div>
 
           {error && <div className="error-message">{error}</div>}

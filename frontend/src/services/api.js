@@ -187,6 +187,10 @@ export const api = {
   removeBlueprintOverrideShift: (id, ovId, shiftId) => request(`/blueprints/${id}/overrides/${ovId}/shifts/${shiftId}`, { method: 'DELETE' }),
   addBlueprintPreset: (id, data) => request(`/blueprints/${id}/presets`, { method: 'POST', body: JSON.stringify(data) }),
   removeBlueprintPreset: (id, presetId) => request(`/blueprints/${id}/presets/${presetId}`, { method: 'DELETE' }),
+  listWeeklyTemplates: (id) => request(`/blueprints/${id}/templates`),
+  saveWeeklyTemplate: (id, data) => request(`/blueprints/${id}/templates`, { method: 'POST', body: JSON.stringify(data) }),
+  applyWeeklyTemplate: (id, templateId) => request(`/blueprints/${id}/templates/${templateId}/apply`, { method: 'POST' }),
+  deleteWeeklyTemplate: (id, templateId) => request(`/blueprints/${id}/templates/${templateId}`, { method: 'DELETE' }),
   generateBlueprint: (id, data) => request(`/blueprints/${id}/generate`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Reports

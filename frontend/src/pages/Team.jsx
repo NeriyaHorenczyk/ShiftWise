@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import ConfirmModal from '../components/ConfirmModal';
+import Pagination from '../components/Pagination';
+
+const PAGE_SIZE = 15;
 
 const ROLE_LABELS = {
   employee: 'Employee',
@@ -22,32 +25,33 @@ const Team = () => {
 
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
-  const [allUsers, setAllUsers] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [totalMembers, setTotalMembers] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [confirmAction, setConfirmAction] = useState(null);
   const refreshRef = useRef(null);
+  // Only the very first fetch shows the full-page loader — a page-turn
+  // re-runs the members effect below too, and flipping `loading` back to
+  // true for that would unmount this whole tree unnecessarily.
+  const hasLoadedOnce = useRef(false);
 
   // A real department is always a UUID; this sentinel is the one non-UUID
   // value selectedDept can hold, so it can never collide with a real id.
   const UNASSIGNED = 'unassigned';
 
+  // Departments (and the default selectedDept they imply) only need loading
+  // once — member pagination is driven by the effect below instead.
   useEffect(() => {
-    const loadAll = async () => {
-      setLoading(true);
+    const loadDepartments = async () => {
       try {
-        const [depts, users] = await Promise.all([
-          api.getDepartments(),
-          api.getUsers(),
-        ]);
+        const depts = await api.getDepartments();
         setDepartments(depts);
-        setAllUsers(users.filter(u => u.role !== 'admin'));
-        // Only pick a default the first time — refreshRef.current also calls
-        // this after every role change / delete / department reassignment,
-        // and re-picking then would yank an admin back to the first
-        // department mid-cleanup (e.g. right after reassigning someone out
-        // of the "Unassigned" filter).
+        // Only pick a default the first time — re-picking on a later call
+        // would yank an admin back to the first department mid-cleanup
+        // (e.g. right after reassigning someone out of "Unassigned").
         setSelectedDept(prev => {
           if (prev || depts.length === 0) return prev;
           if (isLead && !isAdmin) {
@@ -58,19 +62,44 @@ const Team = () => {
         });
       } catch (err) {
         setError(err.message);
-      } finally {
-        setLoading(false);
       }
     };
-
-    refreshRef.current = loadAll;
-    loadAll();
+    loadDepartments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const members = allUsers.filter(u =>
-    selectedDept === UNASSIGNED ? !u.department_id : u.department_id === selectedDept
-  );
+  useEffect(() => {
+    // selectedDept starts empty until departments load — nothing to fetch yet.
+    if (!selectedDept) return;
+
+    let cancelled = false;
+    const loadMembers = async () => {
+      if (!hasLoadedOnce.current) setLoading(true);
+      try {
+        const data = await api.getUsers({
+          role: 'employee,shift_manager,lead',
+          department_id: selectedDept,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        });
+        if (cancelled) return;
+        setMembers(data.items);
+        setTotalMembers(data.total);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
+      }
+    };
+
+    refreshRef.current = loadMembers;
+    loadMembers();
+
+    return () => { cancelled = true; };
+  }, [selectedDept, page]);
 
   const handleConfirmAction = async () => {
     try {
@@ -117,7 +146,7 @@ const Team = () => {
           <div>
             <h2>Team</h2>
             <p className="page-subtitle">
-              {currentDeptName ? `${currentDeptName} — ${members.length} members` : 'Loading...'}
+              {currentDeptName ? `${currentDeptName} — ${totalMembers} members` : 'Loading...'}
             </p>
           </div>
 
@@ -125,7 +154,7 @@ const Team = () => {
             <select
               className="dept-select"
               value={selectedDept}
-              onChange={e => setSelectedDept(e.target.value)}
+              onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
             >
               {departments.map(d => (
                 <option key={d.id} value={d.id}>{d.name}</option>
@@ -264,6 +293,8 @@ const Team = () => {
           )}
         </div>
       )}
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={totalMembers} onPageChange={setPage} />
 
       {confirmAction && (
         <ConfirmModal
