@@ -57,13 +57,14 @@ export const getAvailability = async (req, res) => {
 
 export const getTeamAvailability = async (req, res) => {
   try {
-    const { week_start, department_id } = req.query;
+    const { week_start, department_id, user_ids } = req.query;
 
     if (!week_start)
       return validationError(res, 'week_start is required.');
 
-    // leads can only see their own department
-    let deptId = department_id;
+    // leads can only see their own department; admins see every department
+    // by default and may optionally narrow to one via the department_id filter
+    let deptId = department_id || null;
     if (req.user.role === 'lead') {
       const [depts] = await pool.query(
         'SELECT id FROM departments WHERE lead_id = ?',
@@ -74,19 +75,35 @@ export const getTeamAvailability = async (req, res) => {
       deptId = depts[0].id;
     }
 
+    const conditions = ['a.week_start = ?', 'u.deleted_at IS NULL'];
+    const params = [week_start];
+    if (deptId) {
+      conditions.push('u.department_id = ?');
+      params.push(deptId);
+    }
+    // Team Availability's roster is paginated client-side; this restricts
+    // the (otherwise org-wide) availability rows to just the employees on
+    // the current page instead of pulling every department's whole week.
+    if (user_ids) {
+      const ids = user_ids.split(',').filter(Boolean);
+      if (ids.length > 0) {
+        conditions.push(`u.id IN (${ids.map(() => '?').join(',')})`);
+        params.push(...ids);
+      }
+    }
+
     const [rows] = await pool.query(`
-      SELECT 
+      SELECT
         a.week_start, a.day_of_week, a.slot, a.status,
         u.name AS user_name,
         u.username,
+        u.department_id,
         u.avatar_url
       FROM availability a
       JOIN users u ON a.user_id = u.id
-      WHERE a.week_start = ?
-        AND u.department_id = ?
-        AND u.deleted_at IS NULL
+      WHERE ${conditions.join(' AND ')}
       ORDER BY a.day_of_week ASC, a.slot ASC, u.name ASC
-    `, [week_start, deptId]);
+    `, params);
 
     if (rows.length === 0) return noData(res, 'No team availability records found.', rows);
     success(res, rows);

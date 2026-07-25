@@ -4,45 +4,64 @@ import { success, updated, deleted, noData, notFound, conflict, validationError,
 
 export const getAllUsers = async (req, res) => {
   try {
-    const { department_id } = req.query;
+    const { department_id, search, role, limit, offset } = req.query;
+    const conditions = ['deleted_at IS NULL'];
     const params = [];
-    let query;
+    let columns;
 
     if (req.user.role === 'admin') {
-      query = `
-        SELECT id, username, email, name, role,
-          department_id, avatar_url, created_at
-        FROM users
-        WHERE deleted_at IS NULL
-      `;
+      columns = 'id, username, email, name, role, department_id, avatar_url, created_at';
       if (department_id) {
-        query += ' AND department_id = ?';
+        conditions.push('department_id = ?');
         params.push(department_id);
       }
     } else if (req.user.role === 'lead') {
-      query = `
-        SELECT id, username, name, role,
-          department_id, avatar_url
-        FROM users
-        WHERE deleted_at IS NULL
-          AND department_id = (
-            SELECT id FROM departments WHERE lead_id = ?
-          )
-      `;
+      columns = 'id, username, name, role, department_id, avatar_url';
+      conditions.push('department_id = (SELECT id FROM departments WHERE lead_id = ?)');
       params.push(req.user.id);
     } else {
-      query = `
-        SELECT username, role
-        FROM users
-        WHERE deleted_at IS NULL
-          AND department_id = (
-            SELECT department_id FROM users WHERE id = ?
-          )
-      `;
+      columns = 'username, role';
+      conditions.push('department_id = (SELECT department_id FROM users WHERE id = ?)');
       params.push(req.user.id);
     }
 
-    const [rows] = await pool.query(query, params);
+    // Only admin/lead roster views (e.g. Team Availability) ever pass these.
+    if (search && ['admin', 'lead'].includes(req.user.role)) {
+      conditions.push('(name LIKE ? OR username LIKE ?)');
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
+    if (role && ['admin', 'lead'].includes(req.user.role)) {
+      const roles = role.split(',').filter(Boolean);
+      if (roles.length > 0) {
+        conditions.push(`role IN (${roles.map(() => '?').join(',')})`);
+        params.push(...roles);
+      }
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Pagination is opt-in via `limit` — Team.jsx, admin Users.jsx,
+    // Schedule.jsx and others all call this endpoint expecting the full
+    // unpaginated array they've always gotten. Only Team Availability's
+    // roster fetch passes limit/offset, switching to the paginated envelope
+    // so a large organization's full user list is never pulled at once.
+    if (limit !== undefined) {
+      const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+      const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+      const [[{ total }]] = await pool.query(
+        `SELECT COUNT(*) AS total FROM users WHERE ${whereClause}`,
+        params
+      );
+      const [rows] = await pool.query(
+        `SELECT ${columns} FROM users WHERE ${whereClause} ORDER BY name ASC LIMIT ? OFFSET ?`,
+        [...params, limitNum, offsetNum]
+      );
+      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
+    }
+
+    const [rows] = await pool.query(`SELECT ${columns} FROM users WHERE ${whereClause}`, params);
     if (rows.length === 0) return noData(res, 'No users found.', rows);
     success(res, rows);
   } catch (err) {
@@ -66,11 +85,25 @@ export const getUserById = async (req, res) => {
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, password, currentPassword } = req.body;
+    const { name, email, password, currentPassword, department_id } = req.body;
 
     const [users] = await pool.query('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
     if (users.length === 0) return notFound(res, 'User not found.');
     const user = users[0];
+
+    // Department assignment/transfer is admin-only — silently ignored for a
+    // self-edit or a lead editing one of their own people, rather than
+    // erroring the whole request over a field they had no business sending.
+    let nextDepartmentId = user.department_id;
+    if (req.user.role === 'admin' && 'department_id' in req.body) {
+      if (department_id) {
+        const [depts] = await pool.query('SELECT id FROM departments WHERE id = ?', [department_id]);
+        if (depts.length === 0) return notFound(res, 'Department not found.');
+        nextDepartmentId = department_id;
+      } else {
+        nextDepartmentId = null;
+      }
+    }
 
     if (email && email.trim() !== user.email) {
       const [existing] = await pool.query(
@@ -101,10 +134,11 @@ export const updateUser = async (req, res) => {
     }
 
     await pool.query(
-      'UPDATE users SET name = ?, email = ? WHERE id = ?',
+      'UPDATE users SET name = ?, email = ?, department_id = ? WHERE id = ?',
       [
         name !== undefined ? name.trim() : user.name,
         email !== undefined ? email.trim() : user.email,
+        nextDepartmentId,
         id
       ]
     );

@@ -7,23 +7,32 @@ import { emitSwapRequested, emitScheduleUpdated } from '../services/socketServic
 
 export const getSwaps = async (req, res) => {
   try {
-    let query = `
-      SELECT
-        sr.id, sr.status, sr.message, sr.lead_comment, sr.created_at,
-        requester.name AS requester_name,
-        requester.username AS requester_username,
-        target.name AS target_name,
-        target.username AS target_username,
-        s.title AS shift_title,
-        s.start_time, s.end_time
+    const { department_id, from_search, to_search, limit, offset } = req.query;
+
+    const baseFrom = `
       FROM swap_requests sr
       JOIN users requester ON sr.requester_id = requester.id
       JOIN users target ON sr.target_id = target.id
       JOIN shifts s ON sr.shift_id = s.id
     `;
+    const selectColumns = `
+      sr.id, sr.status, sr.message, sr.lead_comment, sr.created_at,
+      requester.name AS requester_name,
+      requester.username AS requester_username,
+      target.name AS target_name,
+      target.username AS target_username,
+      s.title AS shift_title,
+      s.start_time, s.end_time
+    `;
 
     const conditions = [];
     const params = [];
+
+    // Hide stale requests whose shift has already started — an unresolved
+    // pending/accepted swap for a shift that's already begun no longer makes
+    // sense to act on. Resolved swaps (approved/rejected) stay visible for
+    // history regardless of the shift's start time.
+    conditions.push("(sr.status NOT IN ('pending', 'accepted') OR s.start_time >= NOW())");
 
     // employees only see swaps they are involved in
     if (['employee', 'shift_manager'].includes(req.user.role)) {
@@ -41,14 +50,47 @@ export const getSwaps = async (req, res) => {
         conditions.push('s.department_id = ?');
         params.push(depts[0].id);
       }
+    } else if (req.user.role === 'admin' && department_id) {
+      // admins see everything by default; this just narrows the view when
+      // they've picked a specific department from the filter dropdown
+      conditions.push('s.department_id = ?');
+      params.push(department_id);
     }
 
-    if (conditions.length > 0)
-      query += ' WHERE ' + conditions.join(' AND ');
+    // "From employee" / "To employee" filters on the Swap Requests page
+    // (admin/lead only)
+    if (from_search && ['admin', 'lead'].includes(req.user.role)) {
+      conditions.push('(requester.name LIKE ? OR requester.username LIKE ?)');
+      const like = `%${from_search}%`;
+      params.push(like, like);
+    }
+    if (to_search && ['admin', 'lead'].includes(req.user.role)) {
+      conditions.push('(target.name LIKE ? OR target.username LIKE ?)');
+      const like = `%${to_search}%`;
+      params.push(like, like);
+    }
 
-    query += ' ORDER BY sr.created_at DESC';
+    const whereClause = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
 
-    const [rows] = await pool.query(query, params);
+    // Pagination is opt-in via `limit` — only the Swap Requests admin/lead
+    // list view passes limit/offset, so a large organization's full swap
+    // history is never pulled into the browser at once.
+    if (limit !== undefined) {
+      const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+      const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+      const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${baseFrom}${whereClause}`, params);
+      const [rows] = await pool.query(
+        `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY sr.created_at DESC LIMIT ? OFFSET ?`,
+        [...params, limitNum, offsetNum]
+      );
+      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY sr.created_at DESC`,
+      params
+    );
     if (rows.length === 0) return noData(res, 'No swap requests found.', rows);
     success(res, rows);
   } catch (err) {

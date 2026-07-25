@@ -161,6 +161,7 @@ const MyShifts = () => {
           monthStart={monthStart}
           weeks={monthWeeks}
           isToday={isToday}
+          selectedWeekStart={weekStart}
           renderDay={(day) => getShiftsForDay(day).map(shift => (
             <MonthShiftPill key={shift.id} shift={shift} currentUser={currentUser} />
           ))}

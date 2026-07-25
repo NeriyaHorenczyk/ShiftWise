@@ -5,16 +5,19 @@ import { emitLeaveStatusChanged } from '../services/socketService.js';
 
 export const getLeaveRequests = async (req, res) => {
   try {
-    let query = `
-      SELECT 
-        lr.id, lr.start_date, lr.end_date, lr.reason,
-        lr.document_url, lr.status, lr.lead_comment, lr.created_at,
-        u.name AS user_name,
-        u.username,
-        r.name AS reviewed_by_name
+    const { department_id, search, limit, offset } = req.query;
+
+    const baseFrom = `
       FROM leave_requests lr
       JOIN users u ON lr.user_id = u.id
       LEFT JOIN users r ON lr.reviewed_by = r.id
+    `;
+    const selectColumns = `
+      lr.id, lr.start_date, lr.end_date, lr.reason,
+      lr.document_url, lr.status, lr.lead_comment, lr.created_at,
+      u.name AS user_name,
+      u.username,
+      r.name AS reviewed_by_name
     `;
 
     const conditions = [];
@@ -36,14 +39,46 @@ export const getLeaveRequests = async (req, res) => {
         conditions.push('u.department_id = ?');
         params.push(depts[0].id);
       }
+    } else if (req.user.role === 'admin' && department_id) {
+      // admins see everything by default; this just narrows the view when
+      // they've picked a specific department from the filter dropdown
+      conditions.push('u.department_id = ?');
+      params.push(department_id);
     }
 
-    if (conditions.length > 0)
-      query += ' WHERE ' + conditions.join(' AND ');
+    // employee-name filter on the Leave Requests page (admin/lead only)
+    if (search && ['admin', 'lead'].includes(req.user.role)) {
+      conditions.push('(u.name LIKE ? OR u.username LIKE ?)');
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
 
-    query += ' ORDER BY lr.created_at DESC';
+    const whereClause = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
 
-    const [rows] = await pool.query(query, params);
+    // Pagination is opt-in via `limit` — Schedule.jsx also calls this
+    // endpoint (for its leave overlay) expecting the full unpaginated array
+    // for the week it's rendering; only the Leave Requests admin/lead list
+    // view passes limit/offset, so a large organization's full leave history
+    // is never pulled into the browser at once.
+    if (limit !== undefined) {
+      const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+      const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+      const [[{ total }]] = await pool.query(
+        `SELECT COUNT(*) AS total FROM leave_requests lr JOIN users u ON lr.user_id = u.id${whereClause}`,
+        params
+      );
+      const [rows] = await pool.query(
+        `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY lr.created_at DESC LIMIT ? OFFSET ?`,
+        [...params, limitNum, offsetNum]
+      );
+      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY lr.created_at DESC`,
+      params
+    );
     if (rows.length === 0) return noData(res, 'No leave requests found.', rows);
     success(res, rows);
   } catch (err) {

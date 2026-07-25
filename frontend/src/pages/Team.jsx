@@ -25,8 +25,13 @@ const Team = () => {
   const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [confirmAction, setConfirmAction] = useState(null);
   const refreshRef = useRef(null);
+
+  // A real department is always a UUID; this sentinel is the one non-UUID
+  // value selectedDept can hold, so it can never collide with a real id.
+  const UNASSIGNED = 'unassigned';
 
   useEffect(() => {
     const loadAll = async () => {
@@ -38,14 +43,19 @@ const Team = () => {
         ]);
         setDepartments(depts);
         setAllUsers(users.filter(u => u.role !== 'admin'));
-        if (depts.length > 0) {
+        // Only pick a default the first time — refreshRef.current also calls
+        // this after every role change / delete / department reassignment,
+        // and re-picking then would yank an admin back to the first
+        // department mid-cleanup (e.g. right after reassigning someone out
+        // of the "Unassigned" filter).
+        setSelectedDept(prev => {
+          if (prev || depts.length === 0) return prev;
           if (isLead && !isAdmin) {
             const myDepartment = depts.find(d => d.lead_username === currentUser.username);
-            setSelectedDept(myDepartment?.id || depts[0].id);
-          } else {
-            setSelectedDept(depts[0].id);
+            return myDepartment?.id || depts[0].id;
           }
-        }
+          return depts[0].id;
+        });
       } catch (err) {
         setError(err.message);
       } finally {
@@ -58,7 +68,9 @@ const Team = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const members = allUsers.filter(u => u.department_id === selectedDept);
+  const members = allUsers.filter(u =>
+    selectedDept === UNASSIGNED ? !u.department_id : u.department_id === selectedDept
+  );
 
   const handleConfirmAction = async () => {
     try {
@@ -67,7 +79,10 @@ const Team = () => {
       } else {
         await api.updateUserRole(confirmAction.userId, {
           role: confirmAction.newRole,
-          department_id: selectedDept,
+          // The "Unassigned" tab is a view filter, not a real department —
+          // promoting someone from it must not write that sentinel string
+          // into their department_id.
+          department_id: selectedDept === UNASSIGNED ? null : selectedDept,
         });
       }
       refreshRef.current?.();
@@ -78,7 +93,22 @@ const Team = () => {
     }
   };
 
-  const currentDept = departments.find(d => d.id === selectedDept);
+  const handleDepartmentChange = async (member, newDeptId) => {
+    setError('');
+    setSuccess('');
+    try {
+      await api.updateUser(member.id, { department_id: newDeptId || null });
+      setSuccess(`${member.name}'s department was updated.`);
+      setTimeout(() => setSuccess(''), 3000);
+      refreshRef.current?.();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const currentDeptName = selectedDept === UNASSIGNED
+    ? 'Unassigned'
+    : departments.find(d => d.id === selectedDept)?.name;
 
   return (
     <div className="page">
@@ -87,11 +117,11 @@ const Team = () => {
           <div>
             <h2>Team</h2>
             <p className="page-subtitle">
-              {currentDept ? `${currentDept.name} — ${members.length} members` : 'Loading...'}
+              {currentDeptName ? `${currentDeptName} — ${members.length} members` : 'Loading...'}
             </p>
           </div>
 
-          {isAdmin && departments.length > 1 && (
+          {isAdmin && (
             <select
               className="dept-select"
               value={selectedDept}
@@ -100,12 +130,14 @@ const Team = () => {
               {departments.map(d => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
+              <option value={UNASSIGNED}>Unassigned</option>
             </select>
           )}
         </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}
+      {success && <div className="success-message">{success}</div>}
 
       {loading ? (
         <div className="page-loading">Loading team...</div>
@@ -136,6 +168,20 @@ const Team = () => {
                   <span className={`badge ${ROLE_COLORS[member.role]}`}>
                     {ROLE_LABELS[member.role]}
                   </span>
+
+                  {isAdmin && (
+                    <select
+                      className="dept-select dept-select-sm"
+                      value={member.department_id || ''}
+                      title="Assign or transfer department"
+                      onChange={e => handleDepartmentChange(member, e.target.value)}
+                    >
+                      <option value="">Unassigned</option>
+                      {departments.map(d => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  )}
 
                   <div className="team-card-actions">
                     {member.role === 'employee' && (

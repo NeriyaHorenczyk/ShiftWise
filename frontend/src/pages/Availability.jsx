@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import {
   getWeekStart,
@@ -7,12 +7,14 @@ import {
   formatDay,
   formatWeekRange,
   isToday,
+  addMonths,
 } from '../utils/dateUtils';
 import { eventBlockStyle, getSlotForHour } from '../utils/weekGridUtils';
-import { LuChevronLeft, LuChevronRight, LuSearch, LuLock } from 'react-icons/lu';
+import { LuChevronLeft, LuChevronRight, LuChevronsLeft, LuChevronsRight, LuSearch, LuLock } from 'react-icons/lu';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
 import WeekTimeGrid from '../components/WeekTimeGrid';
+import Pagination from '../components/Pagination';
 
 const SLOTS = ['morning', 'afternoon', 'evening'];
 const SLOT_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
@@ -34,8 +36,8 @@ const cycleStatus = (current) => {
 };
 
 const Availability = () => {
-  const { isLead } = useAuth();
-  return isLead ? <TeamAvailability /> : <PersonalAvailability />;
+  const { isLead, isAdmin } = useAuth();
+  return (isLead || isAdmin) ? <TeamAvailability /> : <PersonalAvailability />;
 };
 
 // ── Personal availability (employee / shift manager) ─────────────────────
@@ -253,53 +255,100 @@ const PersonalAvailability = () => {
 // day-columns per person — a table with a compact per-day/slot indicator
 // and a name search is far more useful for staffing decisions than reusing
 // the personal single-employee time grid.
+const PAGE_SIZE = 15;
+
 const TeamAvailability = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const { socket } = useSocket();
   const [weekStart, setWeekStart] = useState(getWeekStart());
   const [employees, setEmployees] = useState([]);
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  const [page, setPage] = useState(0);
   const [availability, setAvailability] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDept, setSelectedDept] = useState(''); // '' = all departments (admin only)
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Only the very first fetch shows the full-page loader — a search
+  // keystroke or page-turn re-runs the effect below too, and flipping
+  // `loading` back to true for those would unmount this whole tree (inputs
+  // included), stealing focus out of the search box mid-keystroke.
+  const hasLoadedOnce = useRef(false);
 
   const weekDays = getWeekDays(weekStart);
 
+  // Admins pick from every department; a lead never sees this (the backend
+  // forces their own department regardless of what's passed anyway).
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.getDepartments().then(setDepartments).catch(err => setError(err.message));
+  }, [isAdmin]);
+
   // Shared by the initial/week-change load below and the live socket refetch.
-  const loadTeamAvailability = async () => {
-    const [users, avail] = await Promise.all([
-      api.getUsers(),
-      api.getTeamAvailability({ week_start: toDateString(weekStart) }),
-    ]);
-    setEmployees(users.filter(u => u.role === 'employee' || u.role === 'shift_manager'));
+  // The employee roster is fetched a page at a time (an org can have far
+  // more staff than fit on screen); availability is then restricted to just
+  // that page's employees so a large department's whole week isn't pulled
+  // for rows that aren't even visible.
+  // `cancelledRef` lets a caller opt in to ignoring the result if a newer
+  // request has since superseded this one (see the main effect below, where
+  // every keystroke in the search box re-runs this and could otherwise let
+  // an earlier, now-stale response clobber the latest one).
+  const loadTeamAvailability = async (cancelledRef = { current: false }) => {
+    const usersData = await api.getUsers({
+      role: 'employee,shift_manager',
+      ...(selectedDept ? { department_id: selectedDept } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+    });
+    if (cancelledRef.current) return;
+    setEmployees(usersData.items);
+    setTotalEmployees(usersData.total);
+
+    const userIds = usersData.items.map(u => u.id).join(',');
+    const avail = userIds
+      ? await api.getTeamAvailability({
+          week_start: toDateString(weekStart),
+          ...(selectedDept ? { department_id: selectedDept } : {}),
+          user_ids: userIds,
+        })
+      : [];
+    if (cancelledRef.current) return;
     setAvailability(avail);
   };
 
   useEffect(() => {
+    const cancelledRef = { current: false };
     const load = async () => {
-      setLoading(true);
+      if (!hasLoadedOnce.current) setLoading(true);
       setError('');
       try {
-        await loadTeamAvailability();
+        await loadTeamAvailability(cancelledRef);
       } catch (err) {
-        setError(err.message);
+        if (!cancelledRef.current) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelledRef.current) {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
       }
     };
     load();
+    return () => { cancelledRef.current = true; };
     // weekStart identity changes every render (new Date from prevWeek/nextWeek),
     // but the fetch itself only needs the string it derives — loadTeamAvailability
     // is intentionally left out of deps since it's redefined every render anyway
-    // and always closes over the current weekStart.
+    // and always closes over the current weekStart/selectedDept/search/page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart]);
+  }, [weekStart, selectedDept, search, page]);
 
   // Live collaborative sync: an employee submitting/editing/clearing their
   // availability (see socketService.js emitAvailabilityUpdated call sites)
   // refetches this department's team availability automatically, same
   // pattern as Schedule.jsx/MyShifts.jsx. Admins have no single department_id
-  // on their own user record, so they refetch unconditionally; leads only
+  // on their own user record, so they refetch unconditionally (respecting
+  // whichever department filter they currently have selected); leads only
   // refetch for their own department's events.
   useEffect(() => {
     if (!socket) return;
@@ -312,7 +361,7 @@ const TeamAvailability = () => {
     socket.on('availability:updated', handleAvailabilityUpdated);
     return () => socket.off('availability:updated', handleAvailabilityUpdated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, currentUser?.department_id, weekStart]);
+  }, [socket, currentUser?.department_id, weekStart, selectedDept, search, page]);
 
   const prevWeek = () => {
     const d = new Date(weekStart);
@@ -326,6 +375,12 @@ const TeamAvailability = () => {
     setWeekStart(d);
   };
 
+  // Jump a whole month at a time — lands on the Sunday of the week
+  // containing the 1st of the target month, same as the week nav would if
+  // you clicked through week by week.
+  const prevMonth = () => setWeekStart(w => getWeekStart(addMonths(w, -1)));
+  const nextMonth = () => setWeekStart(w => getWeekStart(addMonths(w, 1)));
+
   const goToToday = () => setWeekStart(getWeekStart());
 
   // grid[username][day_of_week][slot] = status
@@ -334,12 +389,6 @@ const TeamAvailability = () => {
     if (!grid[username]) grid[username] = {};
     if (!grid[username][day_of_week]) grid[username][day_of_week] = {};
     grid[username][day_of_week][slot] = status;
-  });
-
-  const filteredEmployees = employees.filter(e => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return e.name?.toLowerCase().includes(q) || e.username?.toLowerCase().includes(q);
   });
 
   return (
@@ -351,16 +400,35 @@ const TeamAvailability = () => {
 
       <div className="schedule-controls">
         <div className="week-nav">
-          <button className="btn btn-secondary icon-btn" onClick={prevWeek}>
+          <button className="btn btn-secondary icon-btn" onClick={prevMonth} title="Previous month">
+            <LuChevronsLeft size={16} />
+          </button>
+          <button className="btn btn-secondary icon-btn" onClick={prevWeek} title="Previous week">
             <LuChevronLeft size={16} />
           </button>
           <button className="btn btn-secondary" onClick={goToToday}>
             Today
           </button>
-          <button className="btn btn-secondary icon-btn" onClick={nextWeek}>
+          <button className="btn btn-secondary icon-btn" onClick={nextWeek} title="Next week">
             <LuChevronRight size={16} />
           </button>
+          <button className="btn btn-secondary icon-btn" onClick={nextMonth} title="Next month">
+            <LuChevronsRight size={16} />
+          </button>
         </div>
+
+        {isAdmin && (
+          <select
+            className="dept-select"
+            value={selectedDept}
+            onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
+          >
+            <option value="">All departments</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        )}
 
         <div className="search-wrap">
           <LuSearch size={16} className="search-icon" />
@@ -369,7 +437,7 @@ const TeamAvailability = () => {
             className="search-input"
             placeholder="Search employees..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
           />
         </div>
 
@@ -390,8 +458,10 @@ const TeamAvailability = () => {
 
       {loading ? (
         <div className="page-loading">Loading team availability...</div>
-      ) : filteredEmployees.length === 0 ? (
-        <p className="empty-state">No employees match your search.</p>
+      ) : employees.length === 0 ? (
+        <p className="empty-state">
+          {search.trim() ? 'No employees match your search.' : 'No employees found.'}
+        </p>
       ) : (
         <div className="team-avail-table-wrap">
           <table className="team-avail-table">
@@ -404,7 +474,7 @@ const TeamAvailability = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredEmployees.map(emp => (
+              {employees.map(emp => (
                 <tr key={emp.username}>
                   <td className="team-avail-name-col">
                     <span className="team-avail-name">{emp.name}</span>
@@ -437,6 +507,8 @@ const TeamAvailability = () => {
           </table>
         </div>
       )}
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={totalEmployees} onPageChange={setPage} />
     </div>
   );
 };

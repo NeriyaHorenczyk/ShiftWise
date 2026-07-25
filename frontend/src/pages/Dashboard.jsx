@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
 import { api } from '../services/api';
+import { LuSearch } from 'react-icons/lu';
 
 const Dashboard = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
@@ -13,6 +14,10 @@ const Dashboard = () => {
   const [pendingLeave, setPendingLeave] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Employees filter their own upcoming shifts by title; admins/leads
+  // instead filter the swap/leave cards by the employee's name — the two
+  // roles never share this box, so one field covers both meanings.
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -45,13 +50,44 @@ const Dashboard = () => {
   if (loading) return <div className="page-loading">Loading...</div>;
   if (error) return <div className="page-error">{error}</div>;
 
+  const q = search.trim().toLowerCase();
+  const isFilteringShifts = (!isAdmin && !isLead) && !!q;
+  const isFilteringSwapsAndLeave = (isAdmin || isLead) && !!q;
+  const filteredUpcomingShifts = isFilteringShifts
+    ? upcomingShifts.filter(shift => shift.title?.toLowerCase().includes(q))
+    : upcomingShifts;
+  const filteredPendingSwaps = isFilteringSwapsAndLeave
+    ? pendingSwaps.filter(swap =>
+        swap.requester_username?.toLowerCase().includes(q) ||
+        swap.target_username?.toLowerCase().includes(q)
+      )
+    : pendingSwaps;
+  const filteredPendingLeave = isFilteringSwapsAndLeave
+    ? pendingLeave.filter(leave => leave.user_name?.toLowerCase().includes(q))
+    : pendingLeave;
+
   return (
     <div className="page">
       <div className="page-header">
-        <h2>Welcome back, {currentUser?.name}</h2>
-        <p className="page-subtitle">
-          {isAdmin ? 'System overview' : isLead ? 'Department overview' : 'Your schedule at a glance'}
-        </p>
+        <div className="page-header-row">
+          <div>
+            <h2>Welcome back, {currentUser?.name}</h2>
+            <p className="page-subtitle">
+              {isAdmin ? 'System overview' : isLead ? 'Department overview' : 'Your schedule at a glance'}
+            </p>
+          </div>
+
+          <div className="search-wrap">
+            <LuSearch className="search-icon" size={16} />
+            <input
+              type="text"
+              className="search-input"
+              placeholder={(isAdmin || isLead) ? 'Filter by employee name...' : 'Filter by shift name...'}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Admin stats */}
@@ -76,7 +112,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className={`dashboard-grid ${isLead ? 'dashboard-grid-2' : ''}`}>
+      <div className="dashboard-grid">
         {/* Upcoming shifts */}
         <div className="dashboard-card">
           <div className="card-header">
@@ -85,11 +121,13 @@ const Dashboard = () => {
               View all
             </button>
           </div>
-          {upcomingShifts.length === 0 ? (
-            <p className="empty-state">No upcoming shifts</p>
+          {filteredUpcomingShifts.length === 0 ? (
+            <p className="empty-state">
+              {isFilteringShifts ? 'No shifts match your search' : 'No upcoming shifts'}
+            </p>
           ) : (
             <div className="list">
-              {upcomingShifts.map(shift => (
+              {filteredUpcomingShifts.map(shift => (
                 <div key={shift.id} className="list-item">
                   <div className="list-item-main">
                     <span className="list-item-title">{shift.title}</span>
@@ -113,11 +151,13 @@ const Dashboard = () => {
               View all
             </button>
           </div>
-          {pendingSwaps.length === 0 ? (
-            <p className="empty-state">No pending swap requests</p>
+          {filteredPendingSwaps.length === 0 ? (
+            <p className="empty-state">
+              {isFilteringSwapsAndLeave ? 'No swaps match your search' : 'No pending swap requests'}
+            </p>
           ) : (
             <div className="list">
-              {pendingSwaps.map(swap => (
+              {filteredPendingSwaps.map(swap => (
                 <div key={swap.id} className="list-item">
                   <div className="list-item-main">
                     <span className="list-item-title">{swap.shift_title}</span>
@@ -132,35 +172,36 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Pending leave requests — not relevant for a lead's own dashboard */}
-        {!isLead && (
-          <div className="dashboard-card">
-            <div className="card-header">
-              <h3>Pending leave</h3>
-              <button className="card-link" onClick={() => navigate('/leave')}>
-                View all
-              </button>
-            </div>
-            {pendingLeave.length === 0 ? (
-              <p className="empty-state">No pending leave requests</p>
-            ) : (
-              <div className="list">
-                {pendingLeave.map(leave => (
-                  <div key={leave.id} className="list-item">
-                    <div className="list-item-main">
-                      <span className="list-item-title">{leave.user_name}</span>
-                      <span className="list-item-sub">
-                        {new Date(leave.start_date).toLocaleDateString()} —{' '}
-                        {new Date(leave.end_date).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <span className="badge badge-pending">pending</span>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Pending leave requests — scoped server-side to the viewer's own
+            department for a lead, or their own requests for an employee */}
+        <div className="dashboard-card">
+          <div className="card-header">
+            <h3>Pending leave</h3>
+            <button className="card-link" onClick={() => navigate('/leave')}>
+              View all
+            </button>
           </div>
-        )}
+          {filteredPendingLeave.length === 0 ? (
+            <p className="empty-state">
+              {isFilteringSwapsAndLeave ? 'No leave requests match your search' : 'No pending leave requests'}
+            </p>
+          ) : (
+            <div className="list">
+              {filteredPendingLeave.map(leave => (
+                <div key={leave.id} className="list-item">
+                  <div className="list-item-main">
+                    <span className="list-item-title">{leave.user_name}</span>
+                    <span className="list-item-sub">
+                      {new Date(leave.start_date).toLocaleDateString()} —{' '}
+                      {new Date(leave.end_date).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <span className="badge badge-pending">pending</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

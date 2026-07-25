@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
-import { LuArrowLeftRight, LuCheck, LuX } from 'react-icons/lu';
+import Pagination from '../components/Pagination';
+import { LuArrowLeftRight, LuCheck, LuX, LuSearch } from 'react-icons/lu';
+
+const PAGE_SIZE = 20;
 
 const STATUS_LABELS = {
   pending: 'Pending',
@@ -15,26 +18,63 @@ const Swaps = () => {
   const canApprove = isAdmin || isLead;
 
   const [swaps, setSwaps] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDept, setSelectedDept] = useState(''); // '' = all departments (admin only)
+  const [fromSearch, setFromSearch] = useState(''); // canApprove only: requester filter
+  const [toSearch, setToSearch] = useState(''); // canApprove only: target filter
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const refreshRef = useRef(null);
+  // Only the very first fetch shows the full-page loader — a search
+  // keystroke or page-turn re-runs the effect below too, and flipping
+  // `loading` back to true for those would unmount this whole tree (inputs
+  // included), stealing focus out of the search box mid-keystroke.
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    api.getDepartments().then(setDepartments).catch(err => setError(err.message));
+  }, [isAdmin]);
+
+  useEffect(() => {
+    // Every keystroke in either search box re-runs this effect, firing a new
+    // request before the previous one may have resolved. Without this guard,
+    // an in-flight request for an earlier (now-stale) search term could
+    // resolve after the latest one and clobber the correct results.
+    let cancelled = false;
+
     const loadSwaps = async () => {
-      setLoading(true);
+      if (!hasLoadedOnce.current) setLoading(true);
       try {
-        const data = await api.getSwaps();
-        setSwaps(data);
+        const data = await api.getSwaps({
+          ...(selectedDept ? { department_id: selectedDept } : {}),
+          ...(canApprove && fromSearch.trim() ? { from_search: fromSearch.trim() } : {}),
+          ...(canApprove && toSearch.trim() ? { to_search: toSearch.trim() } : {}),
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        });
+        if (cancelled) return;
+        // The endpoint is opt-in paginated: passing `limit` (always true here)
+        // switches its response to { items, total, limit, offset }.
+        setSwaps(data.items);
+        setTotal(data.total);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
       }
     };
 
     refreshRef.current = loadSwaps;
     loadSwaps();
-  }, []);
+
+    return () => { cancelled = true; };
+  }, [selectedDept, fromSearch, toSearch, page, canApprove]);
 
   const handleRespond = async (swapId, action) => {
     try {
@@ -54,6 +94,7 @@ const Swaps = () => {
     }
   };
 
+  const hasFilters = canApprove && (fromSearch.trim() || toSearch.trim());
   const pending = swaps.filter(s => s.status === 'pending');
   const accepted = swaps.filter(s => s.status === 'accepted');
   const resolved = swaps.filter(s => s.status === 'approved' || s.status === 'rejected');
@@ -68,8 +109,48 @@ const Swaps = () => {
   return (
     <div className="page">
       <div className="page-header">
-        <h2>Swap Requests</h2>
-        <p className="page-subtitle">Manage shift swap requests</p>
+        <div className="page-header-row">
+          <div>
+            <h2>Swap Requests</h2>
+            <p className="page-subtitle">Manage shift swap requests</p>
+          </div>
+          {canApprove && (
+            <div className="admin-filters">
+              {isAdmin && (
+                <select
+                  className="dept-select"
+                  value={selectedDept}
+                  onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
+                >
+                  <option value="">All departments</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              )}
+              <div className="search-wrap">
+                <LuSearch className="search-icon" size={16} />
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="From employee..."
+                  value={fromSearch}
+                  onChange={e => { setFromSearch(e.target.value); setPage(0); }}
+                />
+              </div>
+              <div className="search-wrap">
+                <LuSearch className="search-icon" size={16} />
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="To employee..."
+                  value={toSearch}
+                  onChange={e => { setToSearch(e.target.value); setPage(0); }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}
@@ -82,7 +163,7 @@ const Swaps = () => {
         onRespond={handleRespond}
         onApprove={handleApprove}
         formatDate={formatDate}
-        emptyMessage="No pending swap requests"
+        emptyMessage={hasFilters ? 'No swaps match your filters' : 'No pending swap requests'}
       />
 
       <SwapSection
@@ -93,7 +174,7 @@ const Swaps = () => {
         onRespond={handleRespond}
         onApprove={handleApprove}
         formatDate={formatDate}
-        emptyMessage="No swaps awaiting approval"
+        emptyMessage={hasFilters ? 'No swaps match your filters' : 'No swaps awaiting approval'}
       />
 
       <SwapSection
@@ -104,8 +185,10 @@ const Swaps = () => {
         onRespond={handleRespond}
         onApprove={handleApprove}
         formatDate={formatDate}
-        emptyMessage="No resolved swap requests"
+        emptyMessage={hasFilters ? 'No swaps match your filters' : 'No resolved swap requests'}
       />
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
     </div>
   );
 };

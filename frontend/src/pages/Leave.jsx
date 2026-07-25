@@ -1,34 +1,75 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
-import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip, LuSparkles, LuLoaderCircle } from 'react-icons/lu';
+import Pagination from '../components/Pagination';
+import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip, LuSparkles, LuLoaderCircle, LuSearch } from 'react-icons/lu';
+
+const PAGE_SIZE = 20;
 
 const Leave = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
   const canReview = isAdmin || isLead;
 
   const [requests, setRequests] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDept, setSelectedDept] = useState(''); // '' = all departments (admin only)
+  const [nameSearch, setNameSearch] = useState(''); // canReview only: employee name filter
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const refreshRef = useRef(null);
+  // Only the very first fetch shows the full-page loader — a search
+  // keystroke or page-turn re-runs the effect below too, and flipping
+  // `loading` back to true for those would unmount this whole tree (inputs
+  // included), stealing focus out of the search box mid-keystroke.
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    api.getDepartments().then(setDepartments).catch(err => setError(err.message));
+  }, [isAdmin]);
+
+  // Filters narrow the server-side query, so changing either one makes the
+  // previous page number meaningless — the onChange handlers below reset
+  // page back to 0 whenever selectedDept/nameSearch change.
+  useEffect(() => {
+    // Every keystroke in the name-search box re-runs this effect, firing a
+    // new request before the previous one may have resolved. Without this
+    // guard, an in-flight request for an earlier (now-stale) search term
+    // could resolve after the latest one and clobber the correct results.
+    let cancelled = false;
+
     const loadRequests = async () => {
-      setLoading(true);
+      if (!hasLoadedOnce.current) setLoading(true);
       try {
-        const data = await api.getLeave();
-        setRequests(data);
+        const data = await api.getLeave({
+          ...(selectedDept ? { department_id: selectedDept } : {}),
+          ...(canReview && nameSearch.trim() ? { search: nameSearch.trim() } : {}),
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        });
+        if (cancelled) return;
+        // The endpoint is opt-in paginated: passing `limit` (always true here)
+        // switches its response to { items, total, limit, offset }.
+        setRequests(data.items);
+        setTotal(data.total);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
       }
     };
 
     refreshRef.current = loadRequests;
     loadRequests();
-  }, []);
+
+    return () => { cancelled = true; };
+  }, [selectedDept, nameSearch, page, canReview]);
 
   const handleReview = async (id, action, lead_comment) => {
     try {
@@ -48,6 +89,7 @@ const Leave = () => {
     }
   };
 
+  const nameQ = nameSearch.trim();
   const pending = requests.filter(r => r.status === 'pending');
   const resolved = requests.filter(r => r.status === 'approved' || r.status === 'rejected');
 
@@ -68,6 +110,32 @@ const Leave = () => {
             <h2>Leave Requests</h2>
             <p className="page-subtitle">Manage time off requests</p>
           </div>
+          {canReview && (
+            <div className="admin-filters">
+              {isAdmin && (
+                <select
+                  className="dept-select"
+                  value={selectedDept}
+                  onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
+                >
+                  <option value="">All departments</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              )}
+              <div className="search-wrap">
+                <LuSearch className="search-icon" size={16} />
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Filter by employee name..."
+                  value={nameSearch}
+                  onChange={e => { setNameSearch(e.target.value); setPage(0); }}
+                />
+              </div>
+            </div>
+          )}
           {!canReview && (
             <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
               <LuPlus size={16} />
@@ -85,7 +153,7 @@ const Leave = () => {
           Pending {pending.length > 0 && <span className="count-badge">{pending.length}</span>}
         </h3>
         {pending.length === 0 ? (
-          <p className="empty-state">No pending leave requests</p>
+          <p className="empty-state">{nameQ ? 'No matching requests' : 'No pending leave requests'}</p>
         ) : (
           <div className="leave-list">
             {pending.map(r => (
@@ -109,7 +177,7 @@ const Leave = () => {
           Resolved {resolved.length > 0 && <span className="count-badge">{resolved.length}</span>}
         </h3>
         {resolved.length === 0 ? (
-          <p className="empty-state">No resolved leave requests</p>
+          <p className="empty-state">{nameQ ? 'No matching requests' : 'No resolved leave requests'}</p>
         ) : (
           <div className="leave-list">
             {resolved.map(r => (
@@ -126,6 +194,8 @@ const Leave = () => {
           </div>
         )}
       </div>
+
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
 
       {showCreateModal && (
         <CreateLeaveModal

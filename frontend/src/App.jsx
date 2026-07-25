@@ -62,7 +62,9 @@ const App = () => {
 
         <Route path="/my-shifts" element={
           <ProtectedRoute>
-            <MyShifts />
+            <RoleRoute roles={['employee', 'shift_manager', 'lead']}>
+              <MyShifts />
+            </RoleRoute>
           </ProtectedRoute>
         } />
 

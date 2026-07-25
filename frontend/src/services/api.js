@@ -99,7 +99,13 @@ export const api = {
   login: (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
 
   // Users
-  getUsers: () => request('/users'),
+  // params is empty by default so every existing unpaginated caller
+  // (Team.jsx, admin Users.jsx, Schedule.jsx, ...) is unaffected — only
+  // Team Availability's roster fetch passes limit/offset/search.
+  getUsers: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/users${query ? `?${query}` : ''}`);
+  },
   getUserById: (id) => request(`/users/${id}`),
   updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   uploadAvatar: (id, formData) => request(`/users/${id}/avatar`, { method: 'POST', body: formData, isFormData: true }),
@@ -155,13 +161,19 @@ export const api = {
   deleteAvailability: (week_start) => request(`/availability?week_start=${week_start}`, { method: 'DELETE' }),
 
   // Swaps
-  getSwaps: () => request('/swaps'),
+  getSwaps: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/swaps${query ? `?${query}` : ''}`);
+  },
   createSwap: (data) => request('/swaps', { method: 'POST', body: JSON.stringify(data) }),
   respondToSwap: (id, data) => request(`/swaps/${id}/respond`, { method: 'PATCH', body: JSON.stringify(data) }),
   approveSwap: (id, data) => request(`/swaps/${id}/approve`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Leave
-  getLeave: () => request('/leave'),
+  getLeave: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/leave${query ? `?${query}` : ''}`);
+  },
 
   // Blueprints
   getBlueprint: () => request('/blueprints'),

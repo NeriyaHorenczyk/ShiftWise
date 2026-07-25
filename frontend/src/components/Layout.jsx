@@ -96,7 +96,7 @@ const Layout = ({ children }) => {
 
         <nav className="sidebar-nav">
           {navItems
-            .filter(({ to }) => !(isLead && to === '/my-shifts'))
+            .filter(({ to }) => !((isLead || isAdmin) && to === '/my-shifts'))
             .map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}

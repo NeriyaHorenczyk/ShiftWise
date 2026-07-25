@@ -70,25 +70,25 @@ export const getDashboard = async (req, res) => {
       swapParams
     );
 
-    // Pending leave requests — leads don't get this card (their own dashboard
-    // hides it; department leave review happens on the Leave Requests page)
-    let pendingLeave = [];
-    if (role !== 'lead') {
-      const leaveConditions = [`lr.status = 'pending'`];
-      const leaveParams = [];
-      if (role === 'employee' || role === 'shift_manager') {
-        leaveConditions.push('lr.user_id = ?');
-        leaveParams.push(userId);
-      }
-      [pendingLeave] = await pool.query(
-        `SELECT lr.id, lr.start_date, lr.end_date, u.name AS user_name
-         FROM leave_requests lr
-         JOIN users u ON lr.user_id = u.id
-         WHERE ${leaveConditions.join(' AND ')}
-         ORDER BY lr.created_at DESC LIMIT 5`,
-        leaveParams
-      );
+    // Pending leave requests — a lead sees only their own department's,
+    // matching how the Leave Requests page itself scopes things for them.
+    const leaveConditions = [`lr.status = 'pending'`];
+    const leaveParams = [];
+    if (role === 'employee' || role === 'shift_manager') {
+      leaveConditions.push('lr.user_id = ?');
+      leaveParams.push(userId);
+    } else if (role === 'lead' && deptId) {
+      leaveConditions.push('u.department_id = ?');
+      leaveParams.push(deptId);
     }
+    const [pendingLeave] = await pool.query(
+      `SELECT lr.id, lr.start_date, lr.end_date, u.name AS user_name
+       FROM leave_requests lr
+       JOIN users u ON lr.user_id = u.id
+       WHERE ${leaveConditions.join(' AND ')}
+       ORDER BY lr.created_at DESC LIMIT 5`,
+      leaveParams
+    );
 
     let stats = null;
     if (role === 'admin') {

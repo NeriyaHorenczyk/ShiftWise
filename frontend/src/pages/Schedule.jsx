@@ -466,6 +466,7 @@ const Schedule = () => {
           monthStart={monthStart}
           weeks={monthWeeks}
           isToday={isToday}
+          selectedWeekStart={weekStart}
           renderDay={(day) => getShiftsForDay(day).map(shift => {
             const statusClass = shift.status === 'published'
               ? (shift.assigned_count >= shift.required_staff ? 'shift-published' : 'shift-understaffed')
