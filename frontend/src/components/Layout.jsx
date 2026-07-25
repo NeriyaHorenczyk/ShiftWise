@@ -159,6 +159,20 @@ const Layout = ({ children }) => {
               ))}
             </div>
           )}
+
+          {/* .sidebar-header/.sidebar-user/.sidebar-footer (where these two
+              actions normally live) are hidden below the 768px breakpoint,
+              where the sidebar becomes a bottom tab bar — without a
+              mobile-only copy here, phone users would have no way to sign
+              out or switch theme at all. Invisible above that breakpoint. */}
+          <button type="button" className="nav-item mobile-only" onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'}>
+            {isDark ? <LuSun size={18} className="nav-icon" /> : <LuMoon size={18} className="nav-icon" />}
+            <span>{isDark ? 'Light' : 'Dark'}</span>
+          </button>
+          <button type="button" className="nav-item mobile-only" onClick={() => setShowLogoutModal(true)} title="Sign out">
+            <LuLogOut size={18} className="nav-icon" />
+            <span>Sign out</span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">

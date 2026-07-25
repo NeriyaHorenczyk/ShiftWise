@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getSlot } from '../utils/slot.js';
 import { success, created, noData, forbidden, validationError, serverError } from '../utils/response.js';
 import { emitAvailabilityUpdated } from '../services/socketService.js';
+import { withTransaction } from '../utils/transaction.js';
 
 const getDepartmentId = async (userId) => {
   const [[row]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [userId]);
@@ -160,19 +161,24 @@ export const submitAvailability = async (req, res) => {
 
     // the frontend always sends the full week's grid, so replace rather than
     // upsert — otherwise a slot cleared back to the default status would
-    // never actually be removed and would reappear as stale data on reload
-    await pool.query(
-      'DELETE FROM availability WHERE user_id = ? AND week_start = ?',
-      [req.user.id, week_start]
-    );
+    // never actually be removed and would reappear as stale data on reload.
+    // Wrapped in a transaction — otherwise a failure partway through the
+    // insert loop would leave the week's availability partially wiped (old
+    // rows already deleted, only some new ones written) with no rollback.
+    await withTransaction(async (conn) => {
+      await conn.query(
+        'DELETE FROM availability WHERE user_id = ? AND week_start = ?',
+        [req.user.id, week_start]
+      );
 
-    for (const s of slots) {
-      const id = uuidv4();
-      await pool.query(`
-        INSERT INTO availability (id, user_id, week_start, day_of_week, slot, status)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [id, req.user.id, week_start, s.day_of_week, s.slot, s.status]);
-    }
+      for (const s of slots) {
+        const id = uuidv4();
+        await conn.query(`
+          INSERT INTO availability (id, user_id, week_start, day_of_week, slot, status)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [id, req.user.id, week_start, s.day_of_week, s.slot, s.status]);
+      }
+    });
 
     const departmentId = await getDepartmentId(req.user.id);
     emitAvailabilityUpdated(departmentId, { user_id: req.user.id, week_start });

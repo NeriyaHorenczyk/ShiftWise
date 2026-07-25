@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import bcrypt from 'bcrypt';
 import { success, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { withTransaction } from '../utils/transaction.js';
 
 export const getAllUsers = async (req, res) => {
   try {
@@ -139,20 +140,29 @@ export const updateUser = async (req, res) => {
         const match = await bcrypt.compare(currentPassword, passwords[0].password);
         if (!match) return validationError(res, 'Current password is incorrect.');
       }
-
-      const hashed = await bcrypt.hash(password.trim(), 10);
-      await pool.query('UPDATE passwords SET password = ? WHERE user_id = ?', [hashed, id]);
     }
 
-    await pool.query(
-      'UPDATE users SET name = ?, email = ?, department_id = ? WHERE id = ?',
-      [
-        name !== undefined ? name.trim() : user.name,
-        email !== undefined ? email.trim() : user.email,
-        nextDepartmentId,
-        id
-      ]
-    );
+    // hash outside the transaction (CPU-bound, not a query) but apply both
+    // writes inside one — otherwise a failure between them could leave a
+    // changed password paired with a stale name/email/department, or vice
+    // versa, silently inconsistent with what the request actually asked for.
+    const hashed = (password && password.trim() !== '') ? await bcrypt.hash(password.trim(), 10) : null;
+
+    await withTransaction(async (conn) => {
+      if (hashed) {
+        await conn.query('UPDATE passwords SET password = ? WHERE user_id = ?', [hashed, id]);
+      }
+
+      await conn.query(
+        'UPDATE users SET name = ?, email = ?, department_id = ? WHERE id = ?',
+        [
+          name !== undefined ? name.trim() : user.name,
+          email !== undefined ? email.trim() : user.email,
+          nextDepartmentId,
+          id
+        ]
+      );
+    });
 
     updated(res, null, 'User updated successfully.');
   } catch (err) {
@@ -176,10 +186,35 @@ export const updateUserRole = async (req, res) => {
     const [users] = await pool.query('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
     if (users.length === 0) return notFound(res, 'User not found.');
 
-    await pool.query(
-      'UPDATE users SET role = ?, department_id = ? WHERE id = ?',
-      [role, department_id || null, id]
-    );
+    const nextDeptId = department_id || null;
+
+    // A role change can also move department leadership around (promoting
+    // someone to lead assigns them as their department's lead_id; demoting
+    // or reassigning a lead must clear it from whatever department they
+    // used to lead) — all in one transaction, since a failure partway
+    // through would otherwise leave a user showing role 'lead' with no
+    // department's lead_id pointing at them, or a department's lead_id
+    // cleared while its old lead still has the 'lead' role elsewhere.
+    await withTransaction(async (conn) => {
+      const [ledDepts] = await conn.query('SELECT id FROM departments WHERE lead_id = ?', [id]);
+      const wasLeadOfDeptId = ledDepts[0]?.id || null;
+
+      await conn.query(
+        'UPDATE users SET role = ?, department_id = ? WHERE id = ?',
+        [role, nextDeptId, id]
+      );
+
+      // Unset the old department's lead_id if this user is moving out of
+      // leading it (demoted, or promoted to lead of a different department).
+      if (wasLeadOfDeptId && (role !== 'lead' || nextDeptId !== wasLeadOfDeptId)) {
+        await conn.query('UPDATE departments SET lead_id = NULL WHERE id = ?', [wasLeadOfDeptId]);
+      }
+
+      // Set the new department's lead_id when promoting to lead.
+      if (role === 'lead' && nextDeptId) {
+        await conn.query('UPDATE departments SET lead_id = ? WHERE id = ?', [id, nextDeptId]);
+      }
+    });
 
     updated(res, null, 'User role updated successfully.');
   } catch (err) {

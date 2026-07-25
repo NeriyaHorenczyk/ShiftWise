@@ -130,6 +130,36 @@ export const emitSwapRequested = (departmentId, payload = {}) => {
   });
 };
 
+// A swap already in flight changed state (target accepted/declined it, or a
+// lead approved/rejected it) — distinct from emitSwapRequested (which is
+// specifically "a brand-new request showed up" and drives a toast). Reaches
+// the department's managers/admins (reviewing the swaps list) plus the two
+// employees actually party to this swap (personal rooms), so everyone whose
+// view shows this swap refreshes without a manual reload.
+export const emitSwapUpdated = (departmentId, userIds = [], payload = {}) => {
+  const validUserIds = userIds.filter(Boolean);
+  if (!departmentId && validUserIds.length === 0) return;
+  safeEmit('swap:updated', () => {
+    let target = getIO();
+    if (departmentId) target = target.to(`dept:${departmentId}:managers`).to('role:admin');
+    for (const userId of validUserIds) {
+      target = target.to(`user:${userId}`);
+    }
+    target.emit('swap:updated', payload);
+  });
+};
+
+// A leave request in this department was created, reviewed, or withdrawn —
+// lets a lead/admin's Leave Requests list refresh live. Distinct from
+// emitLeaveStatusChanged, which is the personal notification to the one
+// employee whose own request changed.
+export const emitLeaveUpdated = (departmentId, payload = {}) => {
+  if (!departmentId) return;
+  safeEmit('leave:updated', () => {
+    getIO().to(`dept:${departmentId}:managers`).to('role:admin').emit('leave:updated', payload);
+  });
+};
+
 // Broadcast whenever an employee submits/edits/clears their availability, so
 // a lead/admin already viewing the team availability grid sees it update
 // live instead of needing a manual refresh — same room scope as

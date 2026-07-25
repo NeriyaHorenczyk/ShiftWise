@@ -1,7 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
-import { emitLeaveStatusChanged } from '../services/socketService.js';
+import { emitLeaveStatusChanged, emitLeaveUpdated } from '../services/socketService.js';
 
 export const getLeaveRequests = async (req, res) => {
   try {
@@ -122,6 +122,9 @@ export const createLeaveRequest = async (req, res) => {
       [id, req.user.id, start_date, end_date, reason || null, document_url]
     );
 
+    const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
+    emitLeaveUpdated(me?.department_id, { reason: 'created', leaveId: id });
+
     created(res, { id }, 'Leave request submitted successfully.');
   } catch (err) {
     serverError(res, err.message);
@@ -194,6 +197,9 @@ export const reviewLeaveRequest = async (req, res) => {
       end_date: leave.end_date,
     });
 
+    const [[requester]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [leave.user_id]);
+    emitLeaveUpdated(requester?.department_id, { reason: 'reviewed', leaveId: id, status: newStatus });
+
     updated(res, null, `Leave request ${newStatus}.`);
   } catch (err) {
     serverError(res, err.message);
@@ -222,6 +228,10 @@ export const deleteLeaveRequest = async (req, res) => {
       return validationError(res, 'You cannot delete a request that has already been reviewed.');
 
     await pool.query('DELETE FROM leave_requests WHERE id = ?', [id]);
+
+    const [[requester]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [leave.user_id]);
+    emitLeaveUpdated(requester?.department_id, { reason: 'withdrawn', leaveId: id });
+
     deleted(res, 'Leave request deleted successfully.');
   } catch (err) {
     serverError(res, err.message);

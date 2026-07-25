@@ -390,6 +390,19 @@ export const assignEmployee = async (req, res) => {
     if (onLeave.length > 0)
       return validationError(res, 'This employee is on approved leave for this date.');
 
+    // reject a double-booking onto any other (non-deleted) shift whose time
+    // range overlaps this one — autoAssign already enforces this via its
+    // own busyMap/overlaps() check, but the manual path had no equivalent.
+    const [overlapping] = await pool.query(
+      `SELECT sa.id FROM shift_assignments sa
+       JOIN shifts s ON sa.shift_id = s.id
+       WHERE sa.user_id = ? AND s.id != ? AND s.deleted_at IS NULL
+         AND s.start_time < ? AND s.end_time > ?`,
+      [user_id, id, shifts[0].end_time, shifts[0].start_time]
+    );
+    if (overlapping.length > 0)
+      return validationError(res, 'This employee is already assigned to another shift that overlaps this time window.');
+
     // only shift_managers can be assigned as shift manager
     if (is_shift_manager && users[0].role !== 'shift_manager')
       return validationError(res, 'Only shift managers can be assigned as shift manager for a shift.');
@@ -440,6 +453,14 @@ export const assignEmployee = async (req, res) => {
 
 const overlaps = (busyList, start, end) =>
   busyList.some(b => b.start < end && b.end > start);
+
+// Hard ceiling on hours auto-assign will pile onto one person in a single
+// week, regardless of how strongly they prefer every remaining open slot —
+// without this, the greedy preference-first pass has no reason not to keep
+// stacking the same high-preference employee across the whole week.
+const MAX_WEEKLY_HOURS = 40;
+
+const hoursBetween = (start, end) => (end - start) / (1000 * 60 * 60);
 
 export const autoAssign = async (req, res) => {
   try {
@@ -548,13 +569,16 @@ export const autoAssign = async (req, res) => {
     }
 
     const empRole = {};
-    const workload = {}; // tracks total shifts assigned this week per employee
+    const workload = {}; // tracks total HOURS assigned this week per employee — a
+    // shift-count tally would treat a 2-hour and a 10-hour shift as equally
+    // "fair", which is exactly the imbalance this is meant to prevent.
     for (const e of employees) {
       empRole[e.id] = e.role;
-      workload[e.id] = busyMap[e.id].length; // pre-load with existing assignments
+      // pre-load with hours already committed via existing assignments
+      workload[e.id] = busyMap[e.id].reduce((sum, b) => sum + hoursBetween(b.start, b.end), 0);
     }
 
-    // Precompute each shift's slot/day/remaining-openings once.
+    // Precompute each shift's slot/day/remaining-openings/duration once.
     const shiftMeta = shifts.map(shift => {
       const shiftStart = new Date(shift.start_time);
       const shiftEnd = new Date(shift.end_time);
@@ -566,6 +590,7 @@ export const autoAssign = async (req, res) => {
         slot: getSlot(shiftStart.getHours()),
         openSlots: shift.required_staff - Number(shift.assigned_count),
         hasSmAssigned: Number(shift.sm_count) > 0,
+        durationHours: hoursBetween(shiftStart, shiftEnd),
       };
     });
 
@@ -590,6 +615,7 @@ export const autoAssign = async (req, res) => {
         .filter(e => !overlaps(busyMap[e.id] || [], meta.shiftStart, meta.shiftEnd))
         .filter(e => availMap[`${e.id}_${meta.dayOfWeek}_${meta.slot}`] !== 'unavailable')
         .filter(e => !isOnApprovedLeave(e.id, meta.shiftStart))
+        .filter(e => (workload[e.id] || 0) + meta.durationHours <= MAX_WEEKLY_HOURS)
         .map(e => ({ id: e.id, score: scoreFor(e.id, meta.dayOfWeek, meta.slot), workload: workload[e.id] || 0 }))
         .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.workload - b.workload));
 
@@ -598,7 +624,7 @@ export const autoAssign = async (req, res) => {
 
       newAssignments.push([uuidv4(), meta.shift.id, chosen.id, 1]);
       busyMap[chosen.id].push({ start: meta.shiftStart, end: meta.shiftEnd });
-      workload[chosen.id] = (workload[chosen.id] || 0) + 1;
+      workload[chosen.id] = (workload[chosen.id] || 0) + meta.durationHours;
       meta.hasSmAssigned = true;
       meta.openSlots--;
     }
@@ -617,6 +643,7 @@ export const autoAssign = async (req, res) => {
         const status = availMap[`${e.id}_${meta.dayOfWeek}_${meta.slot}`];
         if (status === 'unavailable') continue;
         if (isOnApprovedLeave(e.id, meta.shiftStart)) continue;
+        if ((workload[e.id] || 0) + meta.durationHours > MAX_WEEKLY_HOURS) continue;
         pairs.push({ meta, employeeId: e.id, score: scoreFor(e.id, meta.dayOfWeek, meta.slot) });
       }
     }
@@ -630,14 +657,16 @@ export const autoAssign = async (req, res) => {
       const best = pairs[0];
       newAssignments.push([uuidv4(), best.meta.shift.id, best.employeeId, 0]);
       busyMap[best.employeeId].push({ start: best.meta.shiftStart, end: best.meta.shiftEnd });
-      workload[best.employeeId] = (workload[best.employeeId] || 0) + 1;
+      workload[best.employeeId] = (workload[best.employeeId] || 0) + best.meta.durationHours;
       best.meta.openSlots--;
 
-      // drop pairs that are no longer valid: this shift is now full, or this
-      // employee now conflicts with a shift they were just assigned to
+      // drop pairs that are no longer valid: this shift is now full, this
+      // employee now conflicts with a shift they were just assigned to, or
+      // this assignment would push them over the weekly hours cap
       pairs = pairs.filter(p =>
         p.meta.openSlots > 0 &&
-        !overlaps(busyMap[p.employeeId] || [], p.meta.shiftStart, p.meta.shiftEnd)
+        !overlaps(busyMap[p.employeeId] || [], p.meta.shiftStart, p.meta.shiftEnd) &&
+        (workload[p.employeeId] || 0) + p.meta.durationHours <= MAX_WEEKLY_HOURS
       );
     }
 

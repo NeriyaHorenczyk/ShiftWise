@@ -104,24 +104,13 @@ const AdminUsers = () => {
     setModalError('');
     setModalLoading(true);
     try {
-      const wasLeadOfDept = editingUser.role === 'lead'
-        ? departments.find(d => d.lead_username === editingUser.username)
-        : null;
-
+      // Department-leadership reassignment (clearing the old department's
+      // lead_id, setting the new one) happens atomically server-side inside
+      // this single call — see backend usersController.updateUserRole.
       await api.updateUserRole(editingUser.id, {
         role: newRole,
         department_id: newDeptId || null,
       });
-
-      // Unset old department's lead_id if user was a lead and is moving out
-      if (wasLeadOfDept && (newRole !== 'lead' || newDeptId !== wasLeadOfDept.id)) {
-        await api.updateDepartment(wasLeadOfDept.id, { lead_id: null });
-      }
-
-      // Set new department's lead_id if promoting to lead
-      if (newRole === 'lead' && newDeptId) {
-        await api.updateDepartment(newDeptId, { lead_id: editingUser.id });
-      }
 
       setEditingUser(null);
       refreshRef.current?.();

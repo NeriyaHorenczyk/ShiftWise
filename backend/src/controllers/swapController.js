@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, swapApprovedEmail } from '../utils/email.js';
 import { success, created, updated, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
-import { emitSwapRequested, emitScheduleUpdated } from '../services/socketService.js';
+import { emitSwapRequested, emitSwapUpdated, emitScheduleUpdated } from '../services/socketService.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -223,6 +223,11 @@ export const respondToSwap = async (req, res) => {
       [newStatus, id]
     );
 
+    const [[shiftInfo]] = await pool.query('SELECT department_id FROM shifts WHERE id = ?', [swap.shift_id]);
+    emitSwapUpdated(shiftInfo?.department_id, [swap.requester_id, swap.target_id], {
+      swapId: id, status: newStatus,
+    });
+
     updated(res, null, `Swap request ${newStatus}.`);
   } catch (err) {
     serverError(res, err.message);
@@ -275,11 +280,12 @@ export const approveSwap = async (req, res) => {
       );
     });
 
+    const [[shiftInfo]] = await pool.query(
+      'SELECT title, start_time, end_time, department_id FROM shifts WHERE id = ?',
+      [swap.shift_id]
+    );
+
     if (action === 'approve') {
-      const [[shiftInfo]] = await pool.query(
-        'SELECT title, start_time, end_time, department_id FROM shifts WHERE id = ?',
-        [swap.shift_id]
-      );
       const [[requester]] = await pool.query(
         'SELECT email, name FROM users WHERE id = ?',
         [swap.requester_id]
@@ -298,6 +304,10 @@ export const approveSwap = async (req, res) => {
       // a direct assign/unassign would trigger
       emitScheduleUpdated(shiftInfo.department_id, { reason: 'swap-approved', shiftId: swap.shift_id });
     }
+
+    emitSwapUpdated(shiftInfo?.department_id, [swap.requester_id, swap.target_id], {
+      swapId: id, status: newStatus,
+    });
 
     updated(res, null, `Swap request ${newStatus}.`);
   } catch (err) {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
+import useSocket from '../hooks/useSocket';
 import Pagination from '../components/Pagination';
 import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip, LuSparkles, LuLoaderCircle, LuSearch } from 'react-icons/lu';
 
@@ -8,6 +9,7 @@ const PAGE_SIZE = 8;
 
 const Leave = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
+  const { socket } = useSocket();
   const canReview = isAdmin || isLead;
 
   const [requests, setRequests] = useState([]);
@@ -70,6 +72,23 @@ const Leave = () => {
 
     return () => { cancelled = true; };
   }, [selectedDept, nameSearch, page, canReview]);
+
+  // Live sync: `leave:updated` reaches a lead/admin when anyone in their
+  // department creates/withdraws/gets-reviewed a leave request;
+  // `leave:status_changed` reaches the one employee whose own request was
+  // just reviewed. Both are already room-scoped server-side (see
+  // socketService.js), so listening unconditionally here is safe — a socket
+  // only ever receives the events its room membership actually matches.
+  useEffect(() => {
+    if (!socket) return;
+    const refetch = () => refreshRef.current?.();
+    socket.on('leave:updated', refetch);
+    socket.on('leave:status_changed', refetch);
+    return () => {
+      socket.off('leave:updated', refetch);
+      socket.off('leave:status_changed', refetch);
+    };
+  }, [socket]);
 
   const handleReview = async (id, action, lead_comment) => {
     try {

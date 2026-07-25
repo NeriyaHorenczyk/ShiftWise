@@ -271,6 +271,19 @@ button[type='submit']:disabled {
 
 .nav-icon { flex-shrink: 0; }
 
+/* Sign out / theme toggle already live in .sidebar-header/.sidebar-footer,
+   which the mobile breakpoint below hides entirely (the sidebar becomes a
+   bottom tab bar) — without this, mobile users would have no way to sign
+   out or switch theme at all. Rendered as extra .nav-item-styled buttons
+   inside .sidebar-nav, hidden here and revealed only in that breakpoint. */
+.nav-item.mobile-only {
+  display: none;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
 .nav-section {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
@@ -442,9 +455,12 @@ button[type='submit']:disabled {
     border-radius: 4px;
     justify-content: center;
     flex-shrink: 0;
+    min-height: 44px;
   }
 
   .nav-item span { font-size: 0.65rem; }
+
+  .nav-item.mobile-only { display: flex; }
 }
 
 /* ── Pages ── */
@@ -779,6 +795,7 @@ button[type='submit']:disabled {
   align-items: center;
   gap: 0.5rem;
   margin-left: auto;
+  flex-wrap: wrap;
 }
 
 .user-info {
@@ -1476,6 +1493,7 @@ input[type='time'] {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .leave-card-info {
@@ -1561,6 +1579,7 @@ input[type='time'] {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .form-textarea {
@@ -3037,6 +3056,7 @@ input[type='time'] {
 /* ── Team availability (lead) ── */
 .team-avail-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border);
   border-radius: 10px;
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
+import useSocket from '../hooks/useSocket';
 import Pagination from '../components/Pagination';
 import { LuArrowLeftRight, LuCheck, LuX, LuSearch } from 'react-icons/lu';
 
@@ -15,6 +16,7 @@ const STATUS_LABELS = {
 
 const Swaps = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
+  const { socket } = useSocket();
   const canApprove = isAdmin || isLead;
 
   const [swaps, setSwaps] = useState([]);
@@ -75,6 +77,22 @@ const Swaps = () => {
 
     return () => { cancelled = true; };
   }, [selectedDept, fromSearch, toSearch, page, canApprove]);
+
+  // Live sync: `swap:requested` reaches a lead/admin when a new swap needs
+  // their attention; `swap:updated` reaches the department's managers plus
+  // the two employees party to a swap whenever it's accepted/declined/
+  // approved/rejected. Both are already room-scoped server-side, so
+  // listening unconditionally here is safe.
+  useEffect(() => {
+    if (!socket) return;
+    const refetch = () => refreshRef.current?.();
+    socket.on('swap:requested', refetch);
+    socket.on('swap:updated', refetch);
+    return () => {
+      socket.off('swap:requested', refetch);
+      socket.off('swap:updated', refetch);
+    };
+  }, [socket]);
 
   const handleRespond = async (swapId, action) => {
     try {

@@ -2,6 +2,7 @@ import pool from '../../db/connection.js';
 import { v4 as uuid } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
+import { emitScheduleUpdated } from '../services/socketService.js';
 
 const toYMD = (d) => {
   if (!d) return null;
@@ -554,15 +555,24 @@ export const generateShifts = async (req, res) => {
         }
         const endDT = `${endDateStr} ${slot.end_time}`;
 
-        insertRows.push([uuid(), bp.department_id, slot.title, startDT, endDT, slot.required_staff, 'draft', req.user.id]);
+        insertRows.push([
+          uuid(), bp.department_id, slot.title, startDT, endDT,
+          slot.required_staff, slot.needs_shift_manager ? 1 : 0, 'draft', req.user.id,
+        ]);
       }
     }
 
     if (insertRows.length > 0) {
       await pool.query(
-        'INSERT INTO shifts (id, department_id, title, start_time, end_time, required_staff, status, created_by) VALUES ?',
+        `INSERT INTO shifts
+         (id, department_id, title, start_time, end_time, required_staff, needs_shift_manager, status, created_by)
+         VALUES ?`,
         [insertRows]
       );
+      // Generating a batch of draft shifts is functionally the same as a
+      // bulk create — anyone viewing this department's schedule needs the
+      // same live-update a single createShift would trigger.
+      emitScheduleUpdated(bp.department_id, { reason: 'blueprint-generated', count: insertRows.length });
     }
 
     success(res, { created: insertRows.length, overrideDays, week_start }, 'Shifts generated.');

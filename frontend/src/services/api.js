@@ -14,8 +14,20 @@ export const getAssetUrl = (path) => (path ? `${BASE_URL}${path}` : null);
 // network instead of silently replaying a stale, already-resolved response.
 const promiseCache = new Map();
 
+// A real short-TTL data cache, separate from promiseCache above — for
+// slow-changing data that nearly every page independently re-fetches (e.g.
+// departments). Opt-in per call site via `{ cache: true }` rather than
+// matched by URL pattern, so it's obvious from the api.js call site which
+// endpoints are cached. Cleared wholesale on any mutation (same as
+// promiseCache) — coarse, but simple and safe: a stray write anywhere
+// invalidates every cached read rather than risk serving stale data after
+// an update this session doesn't know how to target precisely.
+const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+const dataCache = new Map(); // endpoint -> { value, expiresAt }
+
 export const clearApiCache = () => {
   promiseCache.clear();
+  dataCache.clear();
 };
 
 // Endpoints a logged-out user legitimately hits and where a 401 is an
@@ -49,6 +61,14 @@ const request = async (endpoint, options = {}) => {
   const method = options.method || 'GET';
   const isGet = method.toUpperCase() === 'GET';
   const cacheKey = `${method}:${endpoint}`;
+  const useDataCache = isGet && options.cache === true;
+
+  if (useDataCache) {
+    const cached = dataCache.get(endpoint);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+  }
 
   if (isGet && promiseCache.has(cacheKey)) {
     return promiseCache.get(cacheKey);
@@ -71,6 +91,10 @@ const request = async (endpoint, options = {}) => {
           forceLogoutRedirect();
         }
         throw new Error(body.message || 'Something went wrong.');
+      }
+
+      if (useDataCache) {
+        dataCache.set(endpoint, { value: body.data, expiresAt: Date.now() + DATA_CACHE_TTL_MS });
       }
 
       return body.data;
