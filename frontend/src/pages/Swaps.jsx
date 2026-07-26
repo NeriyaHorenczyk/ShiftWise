@@ -24,6 +24,11 @@ const Swaps = () => {
 
   const [swaps, setSwaps] = useState([]);
   const [total, setTotal] = useState(0);
+  // Section badges need the true count for that status across every page,
+  // not just how many of the currently-loaded PAGE_SIZE items happen to
+  // have that status — so these come from the backend's GROUP BY, not
+  // `swaps.filter(...).length`.
+  const [statusCounts, setStatusCounts] = useState({ pending: 0, accepted: 0, approved: 0, rejected: 0 });
   const [page, setPage] = useState(0);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState(''); // '' = all departments (admin only)
@@ -68,6 +73,7 @@ const Swaps = () => {
         // switches its response to { items, total, limit, offset }.
         setSwaps(data.items);
         setTotal(data.total);
+        setStatusCounts(data.counts || { pending: 0, accepted: 0, approved: 0, rejected: 0 });
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
@@ -114,13 +120,17 @@ const Swaps = () => {
       await api.approveSwap(swapId, { action });
       refreshRef.current?.();
     } catch (err) {
-      setError(err.message);
+      // A rejected approval (e.g. the target became unavailable/on leave/
+      // double-booked after accepting) leaves the swap's status untouched
+      // server-side — no refetch here, so the card stays in "accepted" and
+      // the Lead can still reject it or wait and retry.
+      showToast(err.message, 'error');
     }
   };
 
-  const showToast = (message) => {
+  const showToast = (message, type = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast(message);
+    setToast({ message, type });
     toastTimerRef.current = setTimeout(() => setToast(null), TOAST_DISMISS_MS);
   };
 
@@ -207,6 +217,7 @@ const Swaps = () => {
       <SwapSection
         title="Waiting for response"
         swaps={pending}
+        count={statusCounts.pending}
         currentUser={currentUser}
         canApprove={canApprove}
         onRespond={handleRespond}
@@ -219,6 +230,7 @@ const Swaps = () => {
       <SwapSection
         title="Awaiting lead approval"
         swaps={accepted}
+        count={statusCounts.accepted}
         currentUser={currentUser}
         canApprove={canApprove}
         onRespond={handleRespond}
@@ -231,6 +243,7 @@ const Swaps = () => {
       <SwapSection
         title="Resolved"
         swaps={resolved}
+        count={statusCounts.approved + statusCounts.rejected}
         currentUser={currentUser}
         canApprove={canApprove}
         onRespond={handleRespond}
@@ -255,9 +268,10 @@ const Swaps = () => {
 
       {toast && (
         <div className="toast-stack">
-          <div className="toast toast-success">
+          <div className={`toast toast-${toast.type}`}>
             <div className="toast-body">
-              <span className="toast-title">{toast}</span>
+              <span className="toast-title">{toast.type === 'error' ? 'Approval failed' : 'Success'}</span>
+              <span className="toast-message">{toast.message}</span>
             </div>
             <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
               <LuX size={14} />
@@ -269,10 +283,10 @@ const Swaps = () => {
   );
 };
 
-const SwapSection = ({ title, swaps, currentUser, canApprove, onRespond, onApprove, onCancelRequest, formatDate, emptyMessage }) => (
+const SwapSection = ({ title, swaps, count, currentUser, canApprove, onRespond, onApprove, onCancelRequest, formatDate, emptyMessage }) => (
   <div className="swaps-section">
     <h3 className="swaps-section-title">
-      {title} {swaps.length > 0 && <span className="count-badge">{swaps.length}</span>}
+      {title} {count > 0 && <span className="count-badge">{count}</span>}
     </h3>
     {swaps.length === 0 ? (
       <p className="empty-state">{emptyMessage}</p>

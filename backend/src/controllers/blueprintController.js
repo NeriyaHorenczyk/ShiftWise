@@ -337,15 +337,27 @@ export const removePreset = async (req, res) => {
 // slots) — distinct from blueprint_presets, which is a single reusable
 // shift slot offered as a shortcut inside the "add shift" modals.
 
-// GET /blueprints/:id/templates
+// GET /blueprints/templates
+//
+// Resolves the requester's department's blueprint server-side (same as
+// GET /blueprints) instead of taking a blueprint id in the URL — the
+// Blueprint page fetches this alongside GET /blueprints on mount, and
+// needing the blueprint's id first would force that into a waterfall
+// (fetch the blueprint, read its id, only then fetch templates) instead of
+// firing both requests in parallel.
 export const listWeeklyTemplates = async (req, res) => {
   try {
     const deptId = await getUserDeptId(req.user.id);
+    if (!deptId) return validationError(res, 'You are not assigned to a department.');
+
     const [[bp]] = await pool.query(
-      'SELECT id FROM shift_blueprints WHERE id = ? AND department_id = ?',
-      [req.params.id, deptId]
+      'SELECT id FROM shift_blueprints WHERE department_id = ?',
+      [deptId]
     );
-    if (!bp) return notFound(res, 'Blueprint not found.');
+    // No blueprint configured yet is a legitimate, common state (matches
+    // getBlueprint's own noData response for the same case) — there's
+    // nothing to 404 on, just nothing to list.
+    if (!bp) return noData(res, 'No blueprint configured for this department.', []);
 
     const [templates] = await pool.query(
       `SELECT t.id, t.name, t.created_at, COUNT(s.id) AS shift_count
@@ -354,7 +366,7 @@ export const listWeeklyTemplates = async (req, res) => {
        WHERE t.blueprint_id = ?
        GROUP BY t.id
        ORDER BY t.created_at DESC`,
-      [req.params.id]
+      [bp.id]
     );
     if (templates.length === 0) return noData(res, 'No saved weekly templates.', templates);
     success(res, templates);

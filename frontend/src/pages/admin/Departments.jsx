@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { LuPlus, LuPencil, LuTrash2, LuX } from 'react-icons/lu';
 import { api } from '../../services/api';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -7,7 +7,6 @@ const AdminDepartments = () => {
   const refreshRef = useRef(null);
 
   const [departments, setDepartments] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -20,13 +19,30 @@ const AdminDepartments = () => {
 
   const [confirmDelete, setConfirmDelete] = useState(null);
 
+  // The lead-selection dropdown's user list — not fetched at page mount (the
+  // grid itself only needs GET /departments, which already carries
+  // lead_name/lead_username/member_count), only the first time the New/Edit
+  // Department modal is actually opened, then cached here for every
+  // subsequent open this session. null means "not fetched yet", as opposed
+  // to [] (fetched, empty).
+  const [allUsers, setAllUsers] = useState(null);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const ensureUsers = useCallback(() => {
+    if (allUsers) return Promise.resolve(allUsers);
+    setUsersLoading(true);
+    return api.getUsers()
+      .then(users => {
+        setAllUsers(users);
+        return users;
+      })
+      .finally(() => setUsersLoading(false));
+  }, [allUsers]);
+
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true);
       try {
-        const [depts, users] = await Promise.all([api.getDepartments(), api.getUsers()]);
-        setDepartments(depts);
-        setAllUsers(users);
+        setDepartments(await api.getDepartments());
       } catch (err) {
         setError(err.message);
       } finally {
@@ -37,8 +53,7 @@ const AdminDepartments = () => {
     loadAll();
   }, []);
 
-  const memberCount = (deptId) => allUsers.filter(u => u.department_id === deptId).length;
-  const leads = allUsers.filter(u => u.role === 'lead');
+  const leads = (allUsers || []).filter(u => u.role === 'lead');
 
   const openCreate = () => {
     setEditingDept(null);
@@ -46,15 +61,21 @@ const AdminDepartments = () => {
     setFormLeadId('');
     setFormError('');
     setShowModal(true);
+    ensureUsers().catch(err => setFormError(err.message));
   };
 
   const openEdit = (dept) => {
     setEditingDept(dept);
     setFormName(dept.name);
-    const existingLead = leads.find(u => u.username === dept.lead_username);
-    setFormLeadId(existingLead?.id || '');
+    setFormLeadId('');
     setFormError('');
     setShowModal(true);
+    ensureUsers()
+      .then(users => {
+        const existingLead = users.find(u => u.role === 'lead' && u.username === dept.lead_username);
+        setFormLeadId(existingLead?.id || '');
+      })
+      .catch(err => setFormError(err.message));
   };
 
   const closeModal = () => {
@@ -134,7 +155,7 @@ const AdminDepartments = () => {
             <p className="empty-state">No departments yet. Create the first one.</p>
           ) : (
             departments.map(dept => {
-              const count = memberCount(dept.id);
+              const count = dept.member_count;
               return (
                 <div key={dept.id} className="dept-card">
                   <div className="dept-card-info">
@@ -206,15 +227,16 @@ const AdminDepartments = () => {
                 style={{ width: '100%' }}
                 value={formLeadId}
                 onChange={e => setFormLeadId(e.target.value)}
+                disabled={usersLoading}
               >
-                <option value="">— Assign later —</option>
+                <option value="">{usersLoading ? 'Loading team leads…' : '— Assign later —'}</option>
                 {leads.map(u => (
                   <option key={u.id} value={u.id}>
                     {u.name} (@{u.username})
                   </option>
                 ))}
               </select>
-              {leads.length === 0 && (
+              {!usersLoading && leads.length === 0 && (
                 <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '0.375rem' }}>
                   No users with role "lead" exist yet. Promote someone on the Users page first.
                 </p>
@@ -239,8 +261,8 @@ const AdminDepartments = () => {
         <ConfirmModal
           title="Delete Department"
           message={
-            memberCount(confirmDelete.id) > 0
-              ? `This department has ${memberCount(confirmDelete.id)} active member${memberCount(confirmDelete.id) !== 1 ? 's' : ''}. Deleting it will unassign ${memberCount(confirmDelete.id) !== 1 ? 'them' : 'that member'} from this department — their accounts stay active. Are you sure?`
+            confirmDelete.member_count > 0
+              ? `This department has ${confirmDelete.member_count} active member${confirmDelete.member_count !== 1 ? 's' : ''}. Deleting it will unassign ${confirmDelete.member_count !== 1 ? 'them' : 'that member'} from this department — their accounts stay active. Are you sure?`
               : `Delete "${confirmDelete.name}"? This cannot be undone.`
           }
           confirmLabel="Delete"

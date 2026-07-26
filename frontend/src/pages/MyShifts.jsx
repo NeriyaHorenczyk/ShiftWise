@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
@@ -15,7 +15,7 @@ import {
   getMonthGridWeeks,
   formatMonthLabel,
 } from '../utils/dateUtils';
-import { LuX } from 'react-icons/lu';
+import { LuX, LuLoaderCircle } from 'react-icons/lu';
 import WeekTimeGrid from '../components/WeekTimeGrid';
 import MonthGrid from '../components/MonthGrid';
 import CalendarNav from '../components/CalendarNav';
@@ -42,6 +42,58 @@ const MyShifts = () => {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Page-level toast for swap-request outcomes the modal itself can't stay
+  // open to explain (a 409 conflict transitions the modal straight to its
+  // "already pending" view — see SwapRequestModal — so this is what tells
+  // the user *why* their click didn't do what they expected).
+  const [toast, setToast] = useState(null); // { type, title, message } | null
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  // Single source of truth for "this shift now has a pending swap request",
+  // updated locally the instant we know it's true — whether because our own
+  // request just succeeded, or because a 409 just told us one already
+  // existed — rather than waiting on a live-sync refetch. Every card
+  // reading shift.has_pending_swap (badge, and the modal's own guard
+  // against reopening a duplicate form) reflects this immediately.
+  const markShiftPending = (shiftId) => {
+    setShifts(prev => prev.map(s => s.id === shiftId ? { ...s, has_pending_swap: true } : s));
+  };
+
+  const handleSwapCreated = (shiftId) => {
+    markShiftPending(shiftId);
+    setToast({
+      type: 'success',
+      title: 'Swap request sent',
+      message: 'Swap request sent successfully!',
+    });
+  };
+
+  const handleSwapConflict = (shiftId) => {
+    markShiftPending(shiftId);
+    setToast({
+      type: 'warning',
+      title: 'Swap request already pending',
+      message: 'A swap request is already pending for this shift.',
+    });
+  };
+
+  // The swap-request modal's colleague list — not fetched at page mount (My
+  // Shifts itself never needs it), only the first time a swap modal is
+  // actually opened, then cached here for every subsequent open this
+  // session. null means "not fetched yet", as opposed to [] (fetched, empty).
+  const [allUsers, setAllUsers] = useState(null);
+  const ensureUsers = useCallback(() => {
+    if (allUsers) return Promise.resolve(allUsers);
+    return api.getUsers().then(users => {
+      setAllUsers(users);
+      return users;
+    });
+  }, [allUsers]);
 
   const weekStart = getWeekStart(anchorDate);
   const monthStart = getMonthStart(anchorDate);
@@ -154,6 +206,20 @@ const MyShifts = () => {
 
       {error && <div className="page-error">{error}</div>}
 
+      {toast && (
+        <div className="toast-stack">
+          <div className={`toast toast-${toast.type}`}>
+            <div className="toast-body">
+              <span className="toast-title">{toast.title}</span>
+              {toast.message && <span className="toast-message">{toast.message}</span>}
+            </div>
+            <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
+              <LuX size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="page-loading">Loading shifts...</div>
       ) : viewMode === 'month' ? (
@@ -163,7 +229,14 @@ const MyShifts = () => {
           isToday={isToday}
           selectedWeekStart={weekStart}
           renderDay={(day) => getShiftsForDay(day).map(shift => (
-            <MonthShiftPill key={shift.id} shift={shift} currentUser={currentUser} />
+            <MonthShiftPill
+              key={shift.id}
+              shift={shift}
+              currentUser={currentUser}
+              ensureUsers={ensureUsers}
+              onSwapCreated={handleSwapCreated}
+              onSwapConflict={handleSwapConflict}
+            />
           ))}
         />
       ) : (
@@ -176,6 +249,9 @@ const MyShifts = () => {
               key={`${seg.shift.id}-${seg.startHour}`}
               shift={seg.shift}
               currentUser={currentUser}
+              ensureUsers={ensureUsers}
+              onSwapCreated={handleSwapCreated}
+              onSwapConflict={handleSwapConflict}
               style={eventBlockStyle(seg, SHIFT_EVENT_MIN_HEIGHT)}
             />
           ))}
@@ -187,7 +263,7 @@ const MyShifts = () => {
 
 // Compact, hour-less shift entry for a month-view day cell — just enough
 // to see what's scheduled that day; opens the same swap-request modal.
-const MonthShiftPill = ({ shift, currentUser }) => {
+const MonthShiftPill = ({ shift, currentUser, ensureUsers, onSwapCreated, onSwapConflict }) => {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -199,17 +275,25 @@ const MonthShiftPill = ({ shift, currentUser }) => {
       >
         <span className="month-shift-pill-title">{shift.title}</span>
         {shift.is_shift_manager === 1 && <span className="sm-badge">SM</span>}
+        {shift.has_pending_swap && <span className="badge badge-pending">Swap Pending</span>}
         <span className={`badge badge-${shift.status}`}>{shift.status}</span>
       </div>
 
       {showModal && (
-        <SwapRequestModal shift={shift} currentUser={currentUser} onClose={() => setShowModal(false)} />
+        <SwapRequestModal
+          shift={shift}
+          currentUser={currentUser}
+          ensureUsers={ensureUsers}
+          onSwapCreated={onSwapCreated}
+          onSwapConflict={onSwapConflict}
+          onClose={() => setShowModal(false)}
+        />
       )}
     </>
   );
 };
 
-const MyShiftCard = ({ shift, currentUser, style }) => {
+const MyShiftCard = ({ shift, currentUser, ensureUsers, onSwapCreated, onSwapConflict, style }) => {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -230,12 +314,20 @@ const MyShiftCard = ({ shift, currentUser, style }) => {
           {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
         </div>
         <div className="tg-event-meta">
+          {shift.has_pending_swap && <span className="badge badge-pending">Swap Pending</span>}
           <span className={`badge badge-${shift.status}`}>{shift.status}</span>
         </div>
       </div>
 
       {showModal && (
-        <SwapRequestModal shift={shift} currentUser={currentUser} onClose={() => setShowModal(false)} />
+        <SwapRequestModal
+          shift={shift}
+          currentUser={currentUser}
+          ensureUsers={ensureUsers}
+          onSwapCreated={onSwapCreated}
+          onSwapConflict={onSwapConflict}
+          onClose={() => setShowModal(false)}
+        />
       )}
     </>
   );
@@ -243,22 +335,43 @@ const MyShiftCard = ({ shift, currentUser, style }) => {
 
 const SWAP_MESSAGE_MAX_LENGTH = 500;
 
-const SwapRequestModal = ({ shift, currentUser, onClose }) => {
+const SwapRequestModal = ({ shift, currentUser, ensureUsers, onSwapCreated, onSwapConflict, onClose }) => {
   const [teamMembers, setTeamMembers] = useState([]);
+  // Only ever read by the form branch below, which isn't reached at all
+  // when shift.has_pending_swap is true — its initial value doesn't matter
+  // for that case.
+  const [colleaguesLoading, setColleaguesLoading] = useState(true);
   const [targetUsername, setTargetUsername] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  // Guards against a genuinely rapid double-click submitting twice — a ref
+  // rather than the `loading` state because it must be readable/settable
+  // synchronously, before React has had a chance to re-render and disable
+  // the button (state updates are batched/deferred; this isn't).
+  const submittingRef = useRef(false);
 
+  // No GET /shifts/:id here — `shift` is the exact object from MyShifts'
+  // own already-fetched list, and getMyShifts now returns each shift's
+  // assigned_usernames and has_pending_swap alongside it for exactly this
+  // purpose. The only thing this modal still needs to ask for is the user
+  // directory, and ensureUsers() (owned by the MyShifts parent) only hits
+  // the network the first time any swap modal is opened this session —
+  // every open after that resolves from its cache with zero requests. If a
+  // swap is already pending for this shift there's nothing to submit, so
+  // this skips fetching colleagues entirely too.
   useEffect(() => {
+    // Nothing to load — the "already pending" view below doesn't use
+    // teamMembers/colleaguesLoading at all.
+    if (shift.has_pending_swap) return;
+    let cancelled = false;
     const loadColleagues = async () => {
+      setColleaguesLoading(true);
+      setError('');
       try {
-        const [users, shiftDetail] = await Promise.all([
-          api.getUsers(),
-          api.getShiftById(shift.id),
-        ]);
-        const assignedUsernames = shiftDetail.assignments?.map(a => a.username) || [];
+        const users = await ensureUsers();
+        if (cancelled) return;
+        const assignedUsernames = shift.assigned_usernames || [];
         const colleagues = users.filter(u =>
           u.username !== currentUser.username &&
           !assignedUsernames.includes(u.username)
@@ -272,14 +385,18 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
             : colleagues.filter(u => !LEADERSHIP_ROLES.includes(u.role))
         );
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setColleaguesLoading(false);
       }
     };
     loadColleagues();
-  }, [shift.id, shift.is_shift_manager, currentUser.username]);
+    return () => { cancelled = true; };
+  }, [shift, currentUser.username, ensureUsers]);
 
   const handleSwapRequest = async () => {
-    if (!targetUsername) return;
+    if (!targetUsername || submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     setError('');
     try {
@@ -288,13 +405,58 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
         target_username: targetUsername,
         message: message.trim() || undefined,
       });
-      setSuccess('Swap request sent successfully.');
+      // A successful request needs nothing more from this modal — sync the
+      // parent's copy of this shift (badge) and its success toast, then
+      // close immediately. A completed action should read as "done" right
+      // away rather than lingering on a form that already served its
+      // purpose; no local state reset needed below since the component is
+      // unmounting via onClose().
+      onSwapCreated(shift.id);
+      onClose();
     } catch (err) {
-      setError(err.message);
-    } finally {
+      submittingRef.current = false;
       setLoading(false);
+      if (err.status === 409) {
+        // Someone (another tab, a prior click that actually landed) beat
+        // this one to it — sync local/parent state to match reality and let
+        // the page-level toast explain it, rather than showing a form error
+        // for a request that isn't actually broken, just redundant. `shift`
+        // flipping to has_pending_swap === true on the next render (once
+        // onSwapConflict updates the parent) is what carries this modal
+        // over to the "already pending" view below — this is the ONE case
+        // that keeps the modal open instead of closing it.
+        onSwapConflict(shift.id);
+      } else {
+        setError(err.message);
+      }
     }
   };
+
+  if (shift.has_pending_swap) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <div>
+              <h3 className="modal-title">{shift.title}</h3>
+              <p className="modal-subtitle">
+                {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+              </p>
+            </div>
+            <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          </div>
+
+          <div className="warning-message">
+            A swap request is already pending for this shift. You can view or withdraw it from Swap Requests.
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -315,9 +477,9 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
             className="dept-select"
             value={targetUsername}
             onChange={e => setTargetUsername(e.target.value)}
-            disabled={!!success}
+            disabled={colleaguesLoading || loading}
           >
-            <option value="">Select colleague...</option>
+            <option value="">{colleaguesLoading ? 'Loading colleagues…' : 'Select colleague...'}</option>
             {teamMembers.map(u => (
               <option key={u.username} value={u.username}>{u.username}</option>
             ))}
@@ -332,27 +494,24 @@ const SwapRequestModal = ({ shift, currentUser, onClose }) => {
             placeholder="e.g. I have a doctor's appointment that day — happy to explain more if needed."
             value={message}
             onChange={e => setMessage(e.target.value)}
-            disabled={!!success}
+            disabled={loading}
             maxLength={SWAP_MESSAGE_MAX_LENGTH}
           />
           <p className="input-hint">{message.length}/{SWAP_MESSAGE_MAX_LENGTH}</p>
         </div>
 
         {error && <div className="error-message">{error}</div>}
-        {success && <div className="success-message">{success}</div>}
 
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
-          {!success && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleSwapRequest}
-              disabled={!targetUsername || loading}
-            >
-              {loading ? 'Sending...' : 'Send request'}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSwapRequest}
+            disabled={!targetUsername || loading || colleaguesLoading}
+          >
+            {loading ? <><LuLoaderCircle size={14} className="spin" /> Sending...</> : 'Send request'}
+          </button>
         </div>
       </div>
     </div>

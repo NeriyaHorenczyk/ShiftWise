@@ -10,6 +10,7 @@ import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js'
 import departmentsRouter from './routes/departments.js';
 import shiftsRouter from './routes/shifts.js'
+import scheduleRouter from './routes/schedule.js';
 import availabilityRouter from './routes/availability.js';
 import swapsRouter from './routes/swaps.js';
 import leaveRouter from './routes/leave.js';
@@ -76,6 +77,7 @@ app.use((req, res, next) => {
 app.use('/users', usersRouter);
 app.use('/departments', departmentsRouter);
 app.use('/shifts', shiftsRouter);
+app.use('/schedule', scheduleRouter);
 app.use('/availability', availabilityRouter);
 app.use('/swaps', swapsRouter);
 app.use('/leave', leaveRouter);

@@ -60,55 +60,92 @@ export const getAvailability = async (req, res) => {
   }
 };
 
+// Resolves which department a team-availability query should be scoped to —
+// leads can only see their own department; admins see every department by
+// default and may optionally narrow to one via the department_id filter.
+// `denied` carries the message to send when a lead has no department at
+// all. Shared by getTeamAvailability and the /schedule/overview endpoint.
+export const resolveTeamDepartmentId = async (req, requestedDepartmentId) => {
+  if (req.user.role === 'lead') {
+    const [depts] = await pool.query(
+      'SELECT id FROM departments WHERE lead_id = ?',
+      [req.user.id]
+    );
+    if (depts.length === 0)
+      return { denied: 'You are not assigned as lead of any department.' };
+    return { department_id: depts[0].id };
+  }
+  return { department_id: requestedDepartmentId || null };
+};
+
+// Runs the team-availability query for an already-resolved department.
+// Shared by getTeamAvailability and /schedule/overview (which calls this
+// once per week the current schedule view spans).
+//
+// Team Availability's roster is paginated (an org can have far more staff
+// than fit on screen), so this resolves its own page of relevant users
+// server-side — via the same department/role/search/LIMIT/OFFSET a caller
+// would otherwise have to fetch from GET /users first — rather than
+// requiring a precomputed user_ids list. That's what lets the frontend fire
+// the roster and availability requests in parallel instead of a waterfall.
+export const queryTeamAvailability = async ({ week_start, department_id, role, search, limit, offset }) => {
+  const userConditions = ['deleted_at IS NULL'];
+  const userParams = [];
+  if (department_id) {
+    userConditions.push('department_id = ?');
+    userParams.push(department_id);
+  }
+  if (role) {
+    const roles = role.split(',').filter(Boolean);
+    if (roles.length > 0) {
+      userConditions.push(`role IN (${roles.map(() => '?').join(',')})`);
+      userParams.push(...roles);
+    }
+  }
+  if (search) {
+    userConditions.push('(name LIKE ? OR username LIKE ?)');
+    const like = `%${search}%`;
+    userParams.push(like, like);
+  }
+
+  let userSubquery = `SELECT id FROM users WHERE ${userConditions.join(' AND ')} ORDER BY name ASC`;
+  if (limit !== undefined) {
+    const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+    userSubquery += ' LIMIT ? OFFSET ?';
+    userParams.push(limitNum, offsetNum);
+  }
+
+  const [rows] = await pool.query(`
+    SELECT
+      a.week_start, a.day_of_week, a.slot, a.status,
+      u.name AS user_name,
+      u.username,
+      u.department_id,
+      u.avatar_url
+    FROM availability a
+    JOIN (${userSubquery}) up ON a.user_id = up.id
+    JOIN users u ON a.user_id = u.id
+    WHERE a.week_start = ?
+    ORDER BY a.day_of_week ASC, a.slot ASC, u.name ASC
+  `, [...userParams, week_start]);
+
+  return rows;
+};
+
 export const getTeamAvailability = async (req, res) => {
   try {
-    const { week_start, department_id, user_ids } = req.query;
+    const { week_start, department_id, role, search, limit, offset } = req.query;
 
     if (!week_start)
       return validationError(res, 'week_start is required.');
 
-    // leads can only see their own department; admins see every department
-    // by default and may optionally narrow to one via the department_id filter
-    let deptId = department_id || null;
-    if (req.user.role === 'lead') {
-      const [depts] = await pool.query(
-        'SELECT id FROM departments WHERE lead_id = ?',
-        [req.user.id]
-      );
-      if (depts.length === 0)
-        return forbidden(res, 'You are not assigned as lead of any department.');
-      deptId = depts[0].id;
-    }
+    const resolved = await resolveTeamDepartmentId(req, department_id);
+    if (resolved.denied) return forbidden(res, resolved.denied);
 
-    const conditions = ['a.week_start = ?', 'u.deleted_at IS NULL'];
-    const params = [week_start];
-    if (deptId) {
-      conditions.push('u.department_id = ?');
-      params.push(deptId);
-    }
-    // Team Availability's roster is paginated client-side; this restricts
-    // the (otherwise org-wide) availability rows to just the employees on
-    // the current page instead of pulling every department's whole week.
-    if (user_ids) {
-      const ids = user_ids.split(',').filter(Boolean);
-      if (ids.length > 0) {
-        conditions.push(`u.id IN (${ids.map(() => '?').join(',')})`);
-        params.push(...ids);
-      }
-    }
-
-    const [rows] = await pool.query(`
-      SELECT
-        a.week_start, a.day_of_week, a.slot, a.status,
-        u.name AS user_name,
-        u.username,
-        u.department_id,
-        u.avatar_url
-      FROM availability a
-      JOIN users u ON a.user_id = u.id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY a.day_of_week ASC, a.slot ASC, u.name ASC
-    `, params);
+    const rows = await queryTeamAvailability({
+      week_start, department_id: resolved.department_id, role, search, limit, offset,
+    });
 
     if (rows.length === 0) return noData(res, 'No team availability records found.', rows);
     success(res, rows);

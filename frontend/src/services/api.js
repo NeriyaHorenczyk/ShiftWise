@@ -90,7 +90,15 @@ const request = async (endpoint, options = {}) => {
         if (response.status === 401 && !AUTH_ENDPOINTS.includes(endpoint)) {
           forceLogoutRedirect();
         }
-        throw new Error(body.message || 'Something went wrong.');
+        // .status (and .code, the backend's own envelope status string —
+        // 'CONFLICT', 'VALIDATION_ERROR', etc.) let a caller branch on what
+        // kind of failure this was — e.g. distinguishing a 409 duplicate
+        // -request conflict from any other error — without resorting to
+        // matching on the message text.
+        const error = new Error(body.message || 'Something went wrong.');
+        error.status = response.status;
+        error.code = body.status;
+        throw error;
       }
 
       if (useDataCache) {
@@ -144,6 +152,15 @@ export const api = {
   deleteDepartment: (id, { confirm } = {}) =>
     request(`/departments/${id}${confirm ? '?confirm=true' : ''}`, { method: 'DELETE' }),
 
+  // Schedule — the single consolidated fetch behind the Schedule page: shifts
+  // for the requested window plus (for admins/leads) everything the assign
+  // modal needs — team availability, leave requests, and the user directory
+  // — in one round trip instead of five separate requests.
+  getScheduleOverview: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/schedule/overview${query ? `?${query}` : ''}`);
+  },
+
   // Shifts
   getShifts: (params = {}) => {
     const query = new URLSearchParams(params).toString();
@@ -165,6 +182,10 @@ export const api = {
   autoAssignShifts: (data) => request('/shifts/auto-assign', { method: 'POST', body: JSON.stringify(data) }),
   assignEmployee: (id, data) => request(`/shifts/${id}/assign`, { method: 'POST', body: JSON.stringify(data) }),
   unassignEmployee: (shiftId, userId) => request(`/shifts/${shiftId}/assign/${userId}`, { method: 'DELETE' }),
+  // Replaces a shift's whole assignment list (and optionally publishes it)
+  // in one request — used by the Schedule assign modal's Save/Publish
+  // actions instead of looping assignEmployee/unassignEmployee per employee.
+  updateShiftAssignments: (id, data) => request(`/shifts/${id}/assignments`, { method: 'PUT', body: JSON.stringify(data) }),
 
   // Availability
   getAvailability: (params = {}) => {
@@ -213,7 +234,11 @@ export const api = {
   removeBlueprintOverrideShift: (id, ovId, shiftId) => request(`/blueprints/${id}/overrides/${ovId}/shifts/${shiftId}`, { method: 'DELETE' }),
   addBlueprintPreset: (id, data) => request(`/blueprints/${id}/presets`, { method: 'POST', body: JSON.stringify(data) }),
   removeBlueprintPreset: (id, presetId) => request(`/blueprints/${id}/presets/${presetId}`, { method: 'DELETE' }),
-  listWeeklyTemplates: (id) => request(`/blueprints/${id}/templates`),
+  // No blueprint id needed — resolved server-side from the requester's
+  // department (same as getBlueprint), so this can be fetched in parallel
+  // with getBlueprint on the Blueprint page's mount instead of waiting for
+  // the blueprint's id to come back first.
+  listWeeklyTemplates: () => request('/blueprints/templates'),
   saveWeeklyTemplate: (id, data) => request(`/blueprints/${id}/templates`, { method: 'POST', body: JSON.stringify(data) }),
   applyWeeklyTemplate: (id, templateId) => request(`/blueprints/${id}/templates/${templateId}/apply`, { method: 'POST' }),
   deleteWeeklyTemplate: (id, templateId) => request(`/blueprints/${id}/templates/${templateId}`, { method: 'DELETE' }),

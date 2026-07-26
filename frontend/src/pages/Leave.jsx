@@ -14,6 +14,11 @@ const Leave = () => {
 
   const [requests, setRequests] = useState([]);
   const [total, setTotal] = useState(0);
+  // Section badges need the true count for that status across every page,
+  // not just how many of the currently-loaded PAGE_SIZE items happen to
+  // have that status — so these come from the backend's GROUP BY, not
+  // `requests.filter(...).length`.
+  const [statusCounts, setStatusCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [page, setPage] = useState(0);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState(''); // '' = all departments (admin only)
@@ -57,6 +62,7 @@ const Leave = () => {
         // switches its response to { items, total, limit, offset }.
         setRequests(data.items);
         setTotal(data.total);
+        setStatusCounts(data.counts || { pending: 0, approved: 0, rejected: 0 });
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
@@ -169,7 +175,7 @@ const Leave = () => {
       {/* Pending */}
       <div className="leave-section">
         <h3 className="swaps-section-title">
-          Pending {pending.length > 0 && <span className="count-badge">{pending.length}</span>}
+          Pending {statusCounts.pending > 0 && <span className="count-badge">{statusCounts.pending}</span>}
         </h3>
         {pending.length === 0 ? (
           <p className="empty-state">{nameQ ? 'No matching requests' : 'No pending leave requests'}</p>
@@ -193,7 +199,9 @@ const Leave = () => {
       {/* Resolved */}
       <div className="leave-section">
         <h3 className="swaps-section-title">
-          Resolved {resolved.length > 0 && <span className="count-badge">{resolved.length}</span>}
+          Resolved {(statusCounts.approved + statusCounts.rejected) > 0 && (
+            <span className="count-badge">{statusCounts.approved + statusCounts.rejected}</span>
+          )}
         </h3>
         {resolved.length === 0 ? (
           <p className="empty-state">{nameQ ? 'No matching requests' : 'No resolved leave requests'}</p>

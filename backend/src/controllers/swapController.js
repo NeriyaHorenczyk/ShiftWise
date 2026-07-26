@@ -4,6 +4,7 @@ import { sendEmail, swapApprovedEmail } from '../utils/email.js';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
 import { emitSwapRequested, emitSwapUpdated, emitScheduleUpdated } from '../services/socketService.js';
+import { getOverlappingSlotKeys, toDateStr } from '../utils/slot.js';
 
 export const getSwaps = async (req, res) => {
   try {
@@ -79,12 +80,24 @@ export const getSwaps = async (req, res) => {
       const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
       const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
 
-      const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${baseFrom}${whereClause}`, params);
+      // The page's three sections (pending/accepted/resolved) are status
+      // buckets of one shared paginated list, so a section's badge count
+      // can't just be the length of whatever slice of that status happens
+      // to have landed on the current page — it needs the true count across
+      // every page, under the same filters.
+      const [[totalRows], [statusRows]] = await Promise.all([
+        pool.query(`SELECT COUNT(*) AS total ${baseFrom}${whereClause}`, params),
+        pool.query(`SELECT sr.status, COUNT(*) AS count ${baseFrom}${whereClause} GROUP BY sr.status`, params),
+      ]);
+      const total = totalRows[0].total;
+      const counts = { pending: 0, accepted: 0, approved: 0, rejected: 0 };
+      for (const row of statusRows) counts[row.status] = row.count;
+
       const [rows] = await pool.query(
         `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY sr.created_at DESC LIMIT ? OFFSET ?`,
         [...params, limitNum, offsetNum]
       );
-      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
+      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum, counts });
     }
 
     const [rows] = await pool.query(
@@ -254,6 +267,67 @@ export const approveSwap = async (req, res) => {
     if (swap.status !== 'accepted')
       return validationError(res, 'You can only approve a swap that has been accepted by both employees.');
 
+    const [[shiftInfo]] = await pool.query(
+      'SELECT title, start_time, end_time, department_id FROM shifts WHERE id = ?',
+      [swap.shift_id]
+    );
+    if (!shiftInfo) return notFound(res, 'Shift not found.');
+
+    // Both employees accepting a swap only confirms they're each willing to
+    // make it — it never re-checks whether the target can actually legally
+    // work the shift (their availability/leave could easily have changed
+    // since they accepted). Approving hands the shift straight to them, so
+    // this runs the same eligibility checks a manual assignment goes
+    // through (shiftController.assignEmployee) right before that handoff.
+    let target;
+    if (action === 'approve') {
+      [[target]] = await pool.query('SELECT name, email FROM users WHERE id = ?', [swap.target_id]);
+
+      const shiftStart = new Date(shiftInfo.start_time);
+      const shiftEnd = new Date(shiftInfo.end_time);
+      const shiftDateStr = toDateStr(shiftStart);
+      const weekStart = new Date(shiftStart);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+      // a) marked unavailable for this shift's slot(s) — a shift can span
+      // more than one (e.g. afternoon into evening), so every slot it
+      // overlaps must be checked, not just the one its start time falls into
+      const overlappingKeys = getOverlappingSlotKeys(shiftStart, shiftEnd);
+      const [avail] = await pool.query(
+        'SELECT day_of_week, slot, status FROM availability WHERE user_id = ? AND week_start = ?',
+        [swap.target_id, toDateStr(weekStart)]
+      );
+      const isUnavailable = avail.some(a =>
+        overlappingKeys.has(`${a.day_of_week}_${a.slot}`) && a.status === 'unavailable'
+      );
+      if (isUnavailable) {
+        return validationError(res, `Cannot approve swap: ${target.name} is marked unavailable for this shift's time slot.`);
+      }
+
+      // b) on approved leave covering this shift's date
+      const [onLeave] = await pool.query(
+        `SELECT id FROM leave_requests
+         WHERE user_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ? AND deleted_at IS NULL`,
+        [swap.target_id, shiftDateStr, shiftDateStr]
+      );
+      if (onLeave.length > 0) {
+        return validationError(res, `Cannot approve swap: ${target.name} is on approved leave during this shift.`);
+      }
+
+      // c) already assigned to another (non-deleted) shift whose time range
+      // overlaps this one
+      const [overlapping] = await pool.query(
+        `SELECT sa.id FROM shift_assignments sa
+         JOIN shifts s ON sa.shift_id = s.id
+         WHERE sa.user_id = ? AND s.id != ? AND s.deleted_at IS NULL
+           AND s.start_time < ? AND s.end_time > ?`,
+        [swap.target_id, swap.shift_id, shiftInfo.end_time, shiftInfo.start_time]
+      );
+      if (overlapping.length > 0) {
+        return validationError(res, `Cannot approve swap: ${target.name} is already assigned to an overlapping shift during this time.`);
+      }
+    }
+
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
 
     // Swapping the assignment and updating the request's status must land
@@ -280,19 +354,10 @@ export const approveSwap = async (req, res) => {
       );
     });
 
-    const [[shiftInfo]] = await pool.query(
-      'SELECT title, start_time, end_time, department_id FROM shifts WHERE id = ?',
-      [swap.shift_id]
-    );
-
     if (action === 'approve') {
       const [[requester]] = await pool.query(
         'SELECT email, name FROM users WHERE id = ?',
         [swap.requester_id]
-      );
-      const [[target]] = await pool.query(
-        'SELECT email, name FROM users WHERE id = ?',
-        [swap.target_id]
       );
       await Promise.all([
         sendEmail(requester.email, `Swap approved — ${shiftInfo.title}`, swapApprovedEmail(requester.name, true, shiftInfo, target.name)),

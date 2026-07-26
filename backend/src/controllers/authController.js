@@ -45,8 +45,16 @@ export const login = async (req, res) => {
   try {
     const { username, password } = req.body;
 
+    // department name is joined in here (rather than a separate lookup) so
+    // it lands in the login response's user object and can be cached client
+    // -side in AuthContext — Profile.jsx's department-name field reads it
+    // straight from there instead of firing its own GET /departments/:id.
     const [users] = await pool.query(
-      'SELECT u.*, p.password AS hashed FROM users u JOIN passwords p ON u.id = p.user_id WHERE u.username = ? AND u.deleted_at IS NULL',
+      `SELECT u.*, p.password AS hashed, d.name AS department
+       FROM users u
+       JOIN passwords p ON u.id = p.user_id
+       LEFT JOIN departments d ON u.department_id = d.id AND d.deleted_at IS NULL
+       WHERE u.username = ? AND u.deleted_at IS NULL`,
       [username]
     );
     if (users.length === 0)
@@ -72,6 +80,7 @@ export const login = async (req, res) => {
         name: user.name,
         role: user.role,
         department_id: user.department_id,
+        department: user.department,
         avatar_url: user.avatar_url,
         created_at: user.created_at
       }

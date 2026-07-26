@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { LuCamera, LuX } from 'react-icons/lu';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
@@ -18,8 +18,11 @@ const Profile = () => {
   const [avatarError, setAvatarError] = useState('');
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
 
-  const [deptName, setDeptName] = useState('');
-  const [deptLoading, setDeptLoading] = useState(false);
+  // Seeded straight from AuthContext's cached user object (populated at
+  // login, see authController.login's department join) instead of fetching
+  // GET /departments/:id on mount just to show a name the login response
+  // already carried.
+  const [deptName, setDeptName] = useState(currentUser?.department || '');
   const [deptSaving, setDeptSaving] = useState(false);
   const [deptError, setDeptError] = useState('');
   const [deptSuccess, setDeptSuccess] = useState('');
@@ -71,22 +74,6 @@ const Profile = () => {
     }
   };
 
-  useEffect(() => {
-    if (!isLead || !currentUser?.department_id) return;
-    const loadDept = async () => {
-      setDeptLoading(true);
-      try {
-        const d = await api.getDepartmentById(currentUser.department_id);
-        setDeptName(d.name);
-      } catch (err) {
-        setDeptError(err.message);
-      } finally {
-        setDeptLoading(false);
-      }
-    };
-    loadDept();
-  }, [isLead, currentUser?.department_id]);
-
   const handleDeptSave = async (e) => {
     e.preventDefault();
     setDeptError('');
@@ -94,6 +81,9 @@ const Profile = () => {
     setDeptSaving(true);
     try {
       await api.updateDepartment(currentUser.department_id, { name: deptName.trim() });
+      // Keep AuthContext's cached copy in sync so it stays correct for the
+      // rest of the session without needing a refetch.
+      updateUser({ department: deptName.trim() });
       setDeptSuccess('Department name updated.');
     } catch (err) {
       setDeptError(err.message);
@@ -224,11 +214,11 @@ const Profile = () => {
                     type="text"
                     value={deptName}
                     onChange={e => setDeptName(e.target.value)}
-                    disabled={deptLoading}
+                    disabled={deptSaving}
                     required
                   />
                 </div>
-                <button type="submit" disabled={deptLoading || deptSaving}>
+                <button type="submit" disabled={deptSaving}>
                   {deptSaving ? 'Saving…' : 'Save Department Name'}
                 </button>
               </form>

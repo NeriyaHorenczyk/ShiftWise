@@ -3,55 +3,71 @@ import bcrypt from 'bcrypt';
 import { success, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
 
+// Builds the column list + WHERE clause for a users query, applying the
+// same role-based scoping every caller must respect (admins see everyone
+// with full detail, leads see only their own department, everyone else
+// sees only their own department's username/role). Shared by getAllUsers
+// (paginated and not) and the /schedule/overview endpoint.
+const buildUsersQuery = (req, { department_id, search, role, exclude_id } = {}) => {
+  const conditions = ['deleted_at IS NULL'];
+  const params = [];
+  let columns;
+
+  if (req.user.role === 'admin') {
+    columns = 'id, username, email, name, role, department_id, avatar_url, created_at';
+    // 'unassigned' is a frontend-only sentinel (Team.jsx's "Unassigned"
+    // filter tab) — a real department is always a UUID, so it can never
+    // collide with one.
+    if (department_id === 'unassigned') {
+      conditions.push('department_id IS NULL');
+    } else if (department_id) {
+      conditions.push('department_id = ?');
+      params.push(department_id);
+    }
+  } else if (req.user.role === 'lead') {
+    columns = 'id, username, name, role, department_id, avatar_url';
+    conditions.push('department_id = (SELECT id FROM departments WHERE lead_id = ?)');
+    params.push(req.user.id);
+  } else {
+    columns = 'username, role';
+    conditions.push('department_id = (SELECT department_id FROM users WHERE id = ?)');
+    params.push(req.user.id);
+  }
+
+  // Only admin/lead roster views (e.g. Team Availability, admin Users)
+  // ever pass these.
+  if (search && ['admin', 'lead'].includes(req.user.role)) {
+    conditions.push('(name LIKE ? OR username LIKE ? OR email LIKE ?)');
+    const like = `%${search}%`;
+    params.push(like, like, like);
+  }
+  if (role && ['admin', 'lead'].includes(req.user.role)) {
+    const roles = role.split(',').filter(Boolean);
+    if (roles.length > 0) {
+      conditions.push(`role IN (${roles.map(() => '?').join(',')})`);
+      params.push(...roles);
+    }
+  }
+  // admin Users.jsx excludes the viewing admin from their own user list
+  if (exclude_id && req.user.role === 'admin') {
+    conditions.push('id != ?');
+    params.push(exclude_id);
+  }
+
+  return { columns, whereClause: conditions.join(' AND '), params };
+};
+
+// The plain unpaginated query — reused by getAllUsers (when no `limit` is
+// passed) and by /schedule/overview.
+export const queryUsersForRequester = async (req, opts = {}) => {
+  const { columns, whereClause, params } = buildUsersQuery(req, opts);
+  const [rows] = await pool.query(`SELECT ${columns} FROM users WHERE ${whereClause}`, params);
+  return rows;
+};
+
 export const getAllUsers = async (req, res) => {
   try {
     const { department_id, search, role, exclude_id, limit, offset } = req.query;
-    const conditions = ['deleted_at IS NULL'];
-    const params = [];
-    let columns;
-
-    if (req.user.role === 'admin') {
-      columns = 'id, username, email, name, role, department_id, avatar_url, created_at';
-      // 'unassigned' is a frontend-only sentinel (Team.jsx's "Unassigned"
-      // filter tab) — a real department is always a UUID, so it can never
-      // collide with one.
-      if (department_id === 'unassigned') {
-        conditions.push('department_id IS NULL');
-      } else if (department_id) {
-        conditions.push('department_id = ?');
-        params.push(department_id);
-      }
-    } else if (req.user.role === 'lead') {
-      columns = 'id, username, name, role, department_id, avatar_url';
-      conditions.push('department_id = (SELECT id FROM departments WHERE lead_id = ?)');
-      params.push(req.user.id);
-    } else {
-      columns = 'username, role';
-      conditions.push('department_id = (SELECT department_id FROM users WHERE id = ?)');
-      params.push(req.user.id);
-    }
-
-    // Only admin/lead roster views (e.g. Team Availability, admin Users)
-    // ever pass these.
-    if (search && ['admin', 'lead'].includes(req.user.role)) {
-      conditions.push('(name LIKE ? OR username LIKE ? OR email LIKE ?)');
-      const like = `%${search}%`;
-      params.push(like, like, like);
-    }
-    if (role && ['admin', 'lead'].includes(req.user.role)) {
-      const roles = role.split(',').filter(Boolean);
-      if (roles.length > 0) {
-        conditions.push(`role IN (${roles.map(() => '?').join(',')})`);
-        params.push(...roles);
-      }
-    }
-    // admin Users.jsx excludes the viewing admin from their own user list
-    if (exclude_id && req.user.role === 'admin') {
-      conditions.push('id != ?');
-      params.push(exclude_id);
-    }
-
-    const whereClause = conditions.join(' AND ');
 
     // Pagination is opt-in via `limit` — Team.jsx, admin Users.jsx,
     // Schedule.jsx and others all call this endpoint expecting the full
@@ -59,6 +75,7 @@ export const getAllUsers = async (req, res) => {
     // roster fetch passes limit/offset, switching to the paginated envelope
     // so a large organization's full user list is never pulled at once.
     if (limit !== undefined) {
+      const { columns, whereClause, params } = buildUsersQuery(req, { department_id, search, role, exclude_id });
       const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
       const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
 
@@ -73,7 +90,7 @@ export const getAllUsers = async (req, res) => {
       return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
     }
 
-    const [rows] = await pool.query(`SELECT ${columns} FROM users WHERE ${whereClause}`, params);
+    const rows = await queryUsersForRequester(req, { department_id, search, role, exclude_id });
     if (rows.length === 0) return noData(res, 'No users found.', rows);
     success(res, rows);
   } catch (err) {

@@ -284,42 +284,44 @@ const Blueprint = () => {
   const [generateError, setGenerateError] = useState('');
 
   const refreshRef = useRef(null);
+  const templatesRefreshRef = useRef(null);
 
+  // Both fetched together on mount via Promise.all — listWeeklyTemplates no
+  // longer needs the blueprint's id (it resolves the department server-side,
+  // same as getBlueprint does), so there's no data dependency forcing these
+  // into a waterfall. Each keeps its own error channel and its own refresh
+  // function (assigned to the refs below) since saving/deleting a template
+  // shouldn't need to refetch the whole grid, and vice versa — only the
+  // *initial* load is combined.
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError('');
+    const loadBlueprint = async () => {
       try {
         const data = await api.getBlueprint();
         setBlueprint(data);
       } catch (err) {
         setError(err.message);
-      } finally {
-        setLoading(false);
       }
     };
-    refreshRef.current = load;
-    load();
-  }, []);
-
-  const templatesRefreshRef = useRef(null);
-
-  // Loaded once the blueprint itself is available — kept separate from the
-  // main blueprint load since saving/deleting a template shouldn't need to
-  // refetch the whole grid, and vice versa.
-  useEffect(() => {
-    if (!blueprint?.id) return;
     const loadTemplates = async () => {
       try {
-        const list = await api.listWeeklyTemplates(blueprint.id);
+        const list = await api.listWeeklyTemplates();
         setTemplates(list);
       } catch (err) {
         setTemplateError(err.message);
       }
     };
+    refreshRef.current = loadBlueprint;
     templatesRefreshRef.current = loadTemplates;
-    loadTemplates();
-  }, [blueprint?.id]);
+
+    const init = async () => {
+      setLoading(true);
+      setError('');
+      setTemplateError('');
+      await Promise.all([loadBlueprint(), loadTemplates()]);
+      setLoading(false);
+    };
+    init();
+  }, []);
 
   const handleCreate = async () => {
     setError('');

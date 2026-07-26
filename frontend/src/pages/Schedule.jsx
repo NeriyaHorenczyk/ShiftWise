@@ -56,6 +56,16 @@ const Schedule = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Everything the shift assignment modal needs besides the shift itself
+  // (which it gets straight from `shifts` below — the list endpoint returns
+  // each shift's assignments, so there's no separate GET /shifts/:id) comes
+  // from the same single GET /schedule/overview request that fetches
+  // `shifts` itself (see the effect below) — one round trip for the whole
+  // view instead of shifts/users/leave/availability firing separately.
+  const [allUsers, setAllUsers] = useState([]);
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [teamAvailabilityByWeek, setTeamAvailabilityByWeek] = useState({});
+
   // modals
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -65,6 +75,11 @@ const Schedule = () => {
   const [showUnpublishAllConfirm, setShowUnpublishAllConfirm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
+  // The assign modal's locally-staged assignment list at the moment Publish
+  // was clicked — captured here (rather than re-read from the modal, which
+  // is still mounted behind the confirm dialog) so the single batched
+  // assign+publish request Confirm fires has the payload ready to go.
+  const [pendingPublishAssignments, setPendingPublishAssignments] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkMessages, setBulkMessages] = useState([]); // [{ text, type }]
 
@@ -148,48 +163,63 @@ const Schedule = () => {
     loadDepts();
   }, [isLead, isAdmin, currentUser]);
 
-  // Fetches shifts for whatever window the current view actually displays —
-  // the full padded month range in month view, or the plain 7-day window in
-  // week view — so callers never have to know which view is active.
   // Only an admin needs to wait for a department to be picked — the backend
-  // (shiftController.getAllShifts) already resolves a lead/employee/shift_
-  // manager's own department server-side from their user record and ignores
-  // whatever department_id they send, so gating their fetch on `selectedDept`
-  // (which only exists so the admin dropdown has something to show) would
-  // just be an artificial wait for the departments list to resolve first —
-  // a one-step waterfall with nothing to show for it.
+  // (shiftController.getAllShifts / scheduleController.getScheduleOverview)
+  // already resolves a lead/employee/shift_manager's own department
+  // server-side from their user record and ignores whatever department_id
+  // they send, so gating their fetch on `selectedDept` (which only exists so
+  // the admin dropdown has something to show) would just be an artificial
+  // wait for the departments list to resolve first — a one-step waterfall
+  // with nothing to show for it.
   const deptFilter = canPickDept ? selectedDept : null;
 
-  const fetchShiftsForCurrentView = async () => {
+  // Shared by both fetchers below: the department/date-range params for
+  // whatever window the current view actually displays — the full padded
+  // month range in month view, or the plain 7-day window in week view — so
+  // callers never have to know which view is active.
+  const currentViewParams = () => {
     if (viewMode === 'month') {
       const weeks = getMonthGridWeeks(getMonthStart(anchorDate));
-      return api.getShifts({
+      return {
         ...(deptFilter ? { department_id: deptFilter } : {}),
         start_date: toDateString(weeks[0][0]),
         end_date: toDateString(weeks[weeks.length - 1][6]),
-      });
+      };
     }
-    return api.getShifts({
+    return {
       ...(deptFilter ? { department_id: deptFilter } : {}),
       week_start: toDateString(getWeekStart(anchorDate)),
-    });
+    };
   };
 
-  // load shifts when the view, date, or department changes
+  // Lightweight shifts-only refetch — used after a mutation (publish,
+  // unpublish, a live schedule:updated socket event, bulk actions) where
+  // only the shifts themselves could have changed; team availability, leave
+  // requests, and the user directory don't need to be re-pulled every time.
+  const fetchShiftsForCurrentView = () => api.getShifts(currentViewParams());
+
+  // The full page-load fetch: shifts for the current view plus — bundled
+  // into the same request server-side — everything the assign modal needs
+  // (team availability for every week in view, leave requests, and the user
+  // directory). One GET /schedule/overview instead of separate shifts/
+  // users/leave/availability requests.
   useEffect(() => {
     if (canPickDept && !deptFilter) return;
-    const loadShifts = async () => {
+    const loadOverview = async () => {
       setLoading(true);
       try {
-        const data = await fetchShiftsForCurrentView();
-        setShifts(data);
+        const data = await api.getScheduleOverview(currentViewParams());
+        setShifts(data.shifts);
+        setTeamAvailabilityByWeek(data.teamAvailabilityByWeek);
+        setLeaveRequests(data.leaveRequests);
+        setAllUsers(data.users);
       } catch (err) {
         setError(err.message);
       } finally {
         setLoading(false);
       }
     };
-    loadShifts();
+    loadOverview();
     // anchorDate.getTime() (a primitive) is the real dependency here — the
     // weekStart/monthStart derived above get fresh Date identities every
     // render and must not be listed instead. deptFilter is intentionally
@@ -250,12 +280,24 @@ const Schedule = () => {
     setShowAssignModal(true);
   };
 
+  // Fires the single batched request that applies whatever assignment
+  // changes were staged in the modal AND flips the shift to published, in
+  // one round trip — no per-employee assign/unassign loop, and no separate
+  // publish call. The response already carries the updated shift, so the
+  // grid updates from it directly instead of a follow-up GET /shifts (the
+  // live-sync socket listener still refetches once in the background from
+  // the single schedule:updated event this emits, same as any other user's
+  // change would).
   const handlePublish = async () => {
     try {
-      await api.publishShift(selectedShift.id);
-      setShifts(await fetchShiftsForCurrentView());
+      const detail = await api.updateShiftAssignments(selectedShift.id, {
+        assignments: pendingPublishAssignments,
+        publish: true,
+      });
+      setShifts(prev => prev.map(s => s.id === detail.id ? detail : s));
       setShowPublishConfirm(false);
       setShowAssignModal(false);
+      setPendingPublishAssignments(null);
     } catch (err) {
       // api.js unwraps the backend's { status, message, data } envelope and
       // throws a plain Error with that message (this app uses fetch, not
@@ -632,8 +674,15 @@ const Schedule = () => {
     shift={selectedShift}
     departmentId={selectedDept}
     canEdit={canEdit}
+    allUsers={allUsers}
+    leaveRequests={leaveRequests}
+    teamAvailabilityByWeek={teamAvailabilityByWeek}
     onClose={() => setShowAssignModal(false)}
-    onPublish={() => { setError(''); setShowPublishConfirm(true); }}
+    onPublish={(assignmentsPayload) => {
+      setError('');
+      setPendingPublishAssignments(assignmentsPayload);
+      setShowPublishConfirm(true);
+    }}
     onUnpublish={handleUnpublish}
     onDelete={() => setShowDeleteConfirm(true)}
     onAssigned={(updatedShift) => {
@@ -648,7 +697,7 @@ const Schedule = () => {
           message={`Publish "${selectedShift?.title}"? Employees will be able to see it.`}
           confirmLabel="Publish"
           onConfirm={handlePublish}
-          onCancel={() => { setError(''); setShowPublishConfirm(false); }}
+          onCancel={() => { setError(''); setShowPublishConfirm(false); setPendingPublishAssignments(null); }}
         />
       )}
 
@@ -850,60 +899,53 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
 };
 
 // ── Shift Detail Modal ──────────────────────────────
-const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose, onPublish, onUnpublish, onDelete, onAssigned }) => {
+const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, allUsers, leaveRequests, teamAvailabilityByWeek, onClose, onPublish, onUnpublish, onDelete, onAssigned }) => {
+  // `initialShift` is the exact object from Schedule's `shifts` state — the
+  // list endpoint returns each shift's assignments, so opening this modal
+  // needs no fetch at all. `shift`/`pendingAssignments` (the local staging
+  // area for assign/unassign clicks — nothing is persisted to the server
+  // until Save or Publish, so closing the modal any other way discards
+  // pending changes for free) are just seeded from it directly.
   const [shift, setShift] = useState(initialShift);
-  // Local staging area for assign/unassign clicks — nothing is persisted to the
-  // server until Save or Publish is clicked, so closing the modal any other way
-  // discards pending changes for free (we simply never wrote them anywhere).
   const [pendingAssignments, setPendingAssignments] = useState(initialShift.assignments || []);
-  const [teamMembers, setTeamMembers] = useState([]);
-  const [unavailableUsernames, setUnavailableUsernames] = useState(new Set());
-  const [onLeaveUsernames, setOnLeaveUsernames] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const loadDetail = async () => {
-      try {
-        const [detail, users] = await Promise.all([
-          api.getShiftById(shift.id),
-          api.getUsers(),
-        ]);
-        setShift(detail);
-        setPendingAssignments(detail.assignments || []);
-        setTeamMembers(users.filter(u =>
-          u.role === 'employee' || u.role === 'shift_manager' && u.department_id === departmentId
-        ));
+  const teamMembers = allUsers.filter(u =>
+    u.role === 'employee' || u.role === 'shift_manager' && u.department_id === departmentId
+  );
 
-        // figure out which candidates are unavailable for this shift's slot,
-        // or on approved leave that day, so they can be filtered out below
-        const shiftDate = new Date(detail.start_time);
-        const dayOfWeek = shiftDate.getDay();
-        const slot = getSlotForHour(shiftDate.getHours());
-        const shiftDateStr = toDateString(shiftDate);
-        const weekStartStr = toDateString(getWeekStart(shiftDate));
+  // Figure out which candidates are unavailable for this shift's slot, or on
+  // approved leave that day, so they can be filtered out below — both
+  // computed straight from data the parent already prefetched.
+  const shiftDate = new Date(shift.start_time);
+  const dayOfWeek = shiftDate.getDay();
+  const slot = getSlotForHour(shiftDate.getHours());
+  const shiftDateStr = toDateString(shiftDate);
+  const weekStartStr = toDateString(getWeekStart(shiftDate));
+  const teamAvailability = teamAvailabilityByWeek[weekStartStr] || [];
 
-        const [teamAvail, leaveRequests] = await Promise.all([
-          api.getTeamAvailability({ week_start: weekStartStr }),
-          api.getLeave(),
-        ]);
+  const unavailableUsernames = new Set(
+    teamAvailability
+      .filter(a => a.day_of_week === dayOfWeek && a.slot === slot && a.status === 'unavailable')
+      .map(a => a.username)
+  );
+  const onLeaveUsernames = new Set(
+    leaveRequests
+      .filter(l => l.status === 'approved' && l.start_date <= shiftDateStr && l.end_date >= shiftDateStr)
+      .map(l => l.username)
+  );
 
-        setUnavailableUsernames(new Set(
-          teamAvail
-            .filter(a => a.day_of_week === dayOfWeek && a.slot === slot && a.status === 'unavailable')
-            .map(a => a.username)
-        ));
-        setOnLeaveUsernames(new Set(
-          leaveRequests
-            .filter(l => l.status === 'approved' && l.start_date <= shiftDateStr && l.end_date >= shiftDateStr)
-            .map(l => l.username)
-        ));
-      } catch (err) {
-        setError(err.message);
-      }
-    };
-    loadDetail();
-  }, [departmentId, shift.id]);
+  // Existing assignments only carry `username` (that's all getShiftById/
+  // queryShiftsList return); the batched-assignments endpoint needs a
+  // user_id for every entry, so newly-added ones (which already have it
+  // from handleAssign below) pass through as-is and untouched ones are
+  // resolved by username against the full user directory.
+  const usersByUsername = new Map(allUsers.map(u => [u.username, u]));
+  const buildAssignmentsPayload = () => pendingAssignments.map(a => ({
+    user_id: a.user_id || usersByUsername.get(a.username)?.id,
+    is_shift_manager: !!a.is_shift_manager,
+  }));
 
   const handleAssign = (member, isShiftManager) => {
     setError('');
@@ -920,29 +962,15 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
     setPendingAssignments(prev => prev.filter(a => a.username !== username));
   };
 
-  // Diffs pendingAssignments against the last known server state and persists
-  // only the delta (adds/removes), then refreshes both the server-truth
-  // `shift` and the pending staging list from the result.
+  // Persists pendingAssignments as a single batched request (the server
+  // diffs it against current state itself) instead of one assign/unassign
+  // call per changed employee, then refreshes both the server-truth `shift`
+  // and the pending staging list from the response — no follow-up GET.
   const handleSaveChanges = async () => {
     setSaving(true);
     setError('');
     try {
-      const original = shift.assignments || [];
-      const originalUsernames = new Set(original.map(a => a.username));
-      const pendingUsernames = new Set(pendingAssignments.map(a => a.username));
-
-      const toRemove = original.filter(a => !pendingUsernames.has(a.username));
-      const toAdd = pendingAssignments.filter(a => !originalUsernames.has(a.username));
-
-      for (const a of toRemove) {
-        const member = teamMembers.find(u => u.username === a.username);
-        if (member) await api.unassignEmployee(shift.id, member.id);
-      }
-      for (const a of toAdd) {
-        await api.assignEmployee(shift.id, { user_id: a.user_id, is_shift_manager: !!a.is_shift_manager });
-      }
-
-      const detail = await api.getShiftById(shift.id);
+      const detail = await api.updateShiftAssignments(shift.id, { assignments: buildAssignmentsPayload() });
       setShift(detail);
       setPendingAssignments(detail.assignments || []);
       onAssigned(detail);
@@ -1066,7 +1094,11 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
                   </button>
                   <button
                     className="btn btn-primary"
-                    onClick={async () => {
+                    onClick={() => {
+                      // Purely local — validates against the staged list and
+                      // hands it up to the confirm dialog. Nothing is sent
+                      // over the network until Confirm is clicked there,
+                      // which fires the one batched assign+publish request.
                       if (pendingAssignments.length === 0) {
                         setError('Cannot publish a shift with no assigned workers.');
                         return;
@@ -1076,7 +1108,7 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, onClose,
                         return;
                       }
                       setError('');
-                      if (await handleSaveChanges()) onPublish();
+                      onPublish(buildAssignmentsPayload());
                     }}
                     disabled={saving}
                   >

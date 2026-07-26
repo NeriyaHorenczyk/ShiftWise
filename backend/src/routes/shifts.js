@@ -12,6 +12,7 @@ import {
   unpublishShift,
   assignEmployee,
   unassignEmployee,
+  updateShiftAssignments,
   bulkClear,
   bulkPublish,
   bulkUnpublish,
@@ -40,5 +41,6 @@ router.post('/:id/publish', requireRole('lead'), publishShift);
 router.post('/:id/unpublish', requireRole('lead'), unpublishShift);
 router.post('/:id/assign', requireRole('lead'), assignEmployee);
 router.delete('/:id/assign/:userId', requireRole('lead'), unassignEmployee);
+router.put('/:id/assignments', requireRole('lead'), updateShiftAssignments);
 
 export default router;

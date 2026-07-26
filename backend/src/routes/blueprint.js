@@ -23,6 +23,10 @@ const router = Router();
 
 router.get('/', requireRole('lead'), getBlueprint);
 router.post('/', requireRole('lead'), createBlueprint);
+// No :id — resolved server-side from the requester's department (same as
+// GET /), so the frontend can fetch this in parallel with GET / instead of
+// waiting on the blueprint's id first. Must come before /:id routes below.
+router.get('/templates', requireRole('lead'), listWeeklyTemplates);
 router.put('/:id', requireRole('lead'), updateBlueprint);
 
 router.post('/:id/shifts', requireRole('lead'), addBlueprintShift);
@@ -36,7 +40,6 @@ router.delete('/:id/overrides/:ovId/shifts/:shiftId', requireRole('lead'), remov
 router.post('/:id/presets', requireRole('lead'), addPreset);
 router.delete('/:id/presets/:presetId', requireRole('lead'), removePreset);
 
-router.get('/:id/templates', requireRole('lead'), listWeeklyTemplates);
 router.post('/:id/templates', requireRole('lead'), saveWeeklyTemplate);
 router.post('/:id/templates/:templateId/apply', requireRole('lead'), applyWeeklyTemplate);
 router.delete('/:id/templates/:templateId', requireRole('lead'), deleteWeeklyTemplate);

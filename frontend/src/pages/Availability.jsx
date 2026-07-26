@@ -307,26 +307,26 @@ const TeamAvailability = () => {
   // every keystroke in the search box re-runs this and could otherwise let
   // an earlier, now-stale response clobber the latest one).
   const loadTeamAvailability = async (cancelledRef = { current: false }) => {
-    const usersData = await api.getUsers({
+    // Same department/role/search/page filters go to both endpoints at
+    // once — getTeamAvailability now resolves its own matching page of
+    // users server-side (mirroring getUsers' own pagination), so it no
+    // longer needs the roster's response to know which user_ids to fetch.
+    // That's what lets these start concurrently instead of waterfalling.
+    const commonFilters = {
       role: 'employee,shift_manager',
       ...(selectedDept ? { department_id: selectedDept } : {}),
       ...(search.trim() ? { search: search.trim() } : {}),
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
-    });
+    };
+
+    const [usersData, avail] = await Promise.all([
+      api.getUsers(commonFilters),
+      api.getTeamAvailability({ week_start: toDateString(weekStart), ...commonFilters }),
+    ]);
     if (cancelledRef.current) return;
     setEmployees(usersData.items);
     setTotalEmployees(usersData.total);
-
-    const userIds = usersData.items.map(u => u.id).join(',');
-    const avail = userIds
-      ? await api.getTeamAvailability({
-          week_start: toDateString(weekStart),
-          ...(selectedDept ? { department_id: selectedDept } : {}),
-          user_ids: userIds,
-        })
-      : [];
-    if (cancelledRef.current) return;
     setAvailability(avail);
   };
 

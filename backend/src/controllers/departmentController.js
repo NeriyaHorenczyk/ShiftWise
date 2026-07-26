@@ -5,10 +5,16 @@ import { withTransaction } from '../utils/transaction.js';
 
 export const getAllDepartments = async (req, res) => {
   try {
+    // member_count is a correlated subquery rather than a LEFT JOIN + COUNT/
+    // GROUP BY so it can't inflate — a JOIN against users would multiply each
+    // department row by its member count instead of aggregating it. Admin
+    // Departments.jsx needs this inline so the grid (member counts included)
+    // renders from this one request, without a separate GET /users.
     let query = `
       SELECT d.id, d.name, d.created_at,
         u.name AS lead_name,
-        u.username AS lead_username
+        u.username AS lead_username,
+        (SELECT COUNT(*) FROM users m WHERE m.department_id = d.id AND m.deleted_at IS NULL) AS member_count
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
       WHERE d.deleted_at IS NULL

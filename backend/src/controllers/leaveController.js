@@ -3,57 +3,75 @@ import { v4 as uuidv4 } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { emitLeaveStatusChanged, emitLeaveUpdated } from '../services/socketService.js';
 
+const LEAVE_BASE_FROM = `
+  FROM leave_requests lr
+  JOIN users u ON lr.user_id = u.id
+  LEFT JOIN users r ON lr.reviewed_by = r.id
+`;
+const LEAVE_SELECT_COLUMNS = `
+  lr.id, lr.start_date, lr.end_date, lr.reason,
+  lr.document_url, lr.status, lr.lead_comment, lr.created_at,
+  u.name AS user_name,
+  u.username,
+  r.name AS reviewed_by_name
+`;
+
+// Builds the WHERE clause + params applying the same role-based scoping
+// every leave-requests caller must respect: employees/shift_managers see
+// only their own requests, leads only their department's, admins see
+// everything unless narrowed via department_id. Shared by getLeaveRequests
+// (paginated and not) and the /schedule/overview endpoint.
+const resolveLeaveConditions = async (req, { department_id, search } = {}) => {
+  const conditions = ['lr.deleted_at IS NULL'];
+  const params = [];
+
+  // employees and shift managers only see their own requests
+  if (['employee', 'shift_manager'].includes(req.user.role)) {
+    conditions.push('lr.user_id = ?');
+    params.push(req.user.id);
+  }
+
+  // leads only see requests from their department
+  if (req.user.role === 'lead') {
+    const [depts] = await pool.query(
+      'SELECT id FROM departments WHERE lead_id = ?',
+      [req.user.id]
+    );
+    if (depts.length > 0) {
+      conditions.push('u.department_id = ?');
+      params.push(depts[0].id);
+    }
+  } else if (req.user.role === 'admin' && department_id) {
+    // admins see everything by default; this just narrows the view when
+    // they've picked a specific department from the filter dropdown
+    conditions.push('u.department_id = ?');
+    params.push(department_id);
+  }
+
+  // employee-name filter on the Leave Requests page (admin/lead only)
+  if (search && ['admin', 'lead'].includes(req.user.role)) {
+    conditions.push('(u.name LIKE ? OR u.username LIKE ?)');
+    const like = `%${search}%`;
+    params.push(like, like);
+  }
+
+  return { whereClause: ' WHERE ' + conditions.join(' AND '), params };
+};
+
+// The plain unpaginated query — reused by getLeaveRequests (when no `limit`
+// is passed) and by /schedule/overview.
+export const queryLeaveRequestsForRequester = async (req, opts = {}) => {
+  const { whereClause, params } = await resolveLeaveConditions(req, opts);
+  const [rows] = await pool.query(
+    `SELECT ${LEAVE_SELECT_COLUMNS} ${LEAVE_BASE_FROM}${whereClause} ORDER BY lr.created_at DESC`,
+    params
+  );
+  return rows;
+};
+
 export const getLeaveRequests = async (req, res) => {
   try {
     const { department_id, search, limit, offset } = req.query;
-
-    const baseFrom = `
-      FROM leave_requests lr
-      JOIN users u ON lr.user_id = u.id
-      LEFT JOIN users r ON lr.reviewed_by = r.id
-    `;
-    const selectColumns = `
-      lr.id, lr.start_date, lr.end_date, lr.reason,
-      lr.document_url, lr.status, lr.lead_comment, lr.created_at,
-      u.name AS user_name,
-      u.username,
-      r.name AS reviewed_by_name
-    `;
-
-    const conditions = ['lr.deleted_at IS NULL'];
-    const params = [];
-
-    // employees and shift managers only see their own requests
-    if (['employee', 'shift_manager'].includes(req.user.role)) {
-      conditions.push('lr.user_id = ?');
-      params.push(req.user.id);
-    }
-
-    // leads only see requests from their department
-    if (req.user.role === 'lead') {
-      const [depts] = await pool.query(
-        'SELECT id FROM departments WHERE lead_id = ?',
-        [req.user.id]
-      );
-      if (depts.length > 0) {
-        conditions.push('u.department_id = ?');
-        params.push(depts[0].id);
-      }
-    } else if (req.user.role === 'admin' && department_id) {
-      // admins see everything by default; this just narrows the view when
-      // they've picked a specific department from the filter dropdown
-      conditions.push('u.department_id = ?');
-      params.push(department_id);
-    }
-
-    // employee-name filter on the Leave Requests page (admin/lead only)
-    if (search && ['admin', 'lead'].includes(req.user.role)) {
-      conditions.push('(u.name LIKE ? OR u.username LIKE ?)');
-      const like = `%${search}%`;
-      params.push(like, like);
-    }
-
-    const whereClause = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
 
     // Pagination is opt-in via `limit` — Schedule.jsx also calls this
     // endpoint (for its leave overlay) expecting the full unpaginated array
@@ -61,24 +79,37 @@ export const getLeaveRequests = async (req, res) => {
     // view passes limit/offset, so a large organization's full leave history
     // is never pulled into the browser at once.
     if (limit !== undefined) {
+      const { whereClause, params } = await resolveLeaveConditions(req, { department_id, search });
       const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
       const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
 
-      const [[{ total }]] = await pool.query(
-        `SELECT COUNT(*) AS total FROM leave_requests lr JOIN users u ON lr.user_id = u.id${whereClause}`,
-        params
-      );
+      // The page's Pending/Resolved sections are status buckets of one
+      // shared paginated list, so a section's badge count can't just be the
+      // length of whatever slice of that status happens to have landed on
+      // the current page — it needs the true count across every page, under
+      // the same filters.
+      const [[totalRows], [statusRows]] = await Promise.all([
+        pool.query(
+          `SELECT COUNT(*) AS total FROM leave_requests lr JOIN users u ON lr.user_id = u.id${whereClause}`,
+          params
+        ),
+        pool.query(
+          `SELECT lr.status, COUNT(*) AS count FROM leave_requests lr JOIN users u ON lr.user_id = u.id${whereClause} GROUP BY lr.status`,
+          params
+        ),
+      ]);
+      const total = totalRows[0].total;
+      const counts = { pending: 0, approved: 0, rejected: 0 };
+      for (const row of statusRows) counts[row.status] = row.count;
+
       const [rows] = await pool.query(
-        `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY lr.created_at DESC LIMIT ? OFFSET ?`,
+        `SELECT ${LEAVE_SELECT_COLUMNS} ${LEAVE_BASE_FROM}${whereClause} ORDER BY lr.created_at DESC LIMIT ? OFFSET ?`,
         [...params, limitNum, offsetNum]
       );
-      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum });
+      return success(res, { items: rows, total, limit: limitNum, offset: offsetNum, counts });
     }
 
-    const [rows] = await pool.query(
-      `SELECT ${selectColumns} ${baseFrom}${whereClause} ORDER BY lr.created_at DESC`,
-      params
-    );
+    const rows = await queryLeaveRequestsForRequester(req, { department_id, search });
     if (rows.length === 0) return noData(res, 'No leave requests found.', rows);
     success(res, rows);
   } catch (err) {
