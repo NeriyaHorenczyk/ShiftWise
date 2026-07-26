@@ -8,7 +8,8 @@ import {
   updateUser,
   updateUserRole,
   uploadAvatar,
-  deleteUser
+  deleteUser,
+  restoreUser
 } from '../controllers/usersController.js';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.route('/:id')
   .put(requireSelfOrAdmin, updateUser)
   .delete(requireRole('admin'), deleteUser);
 router.patch('/:id/role', requireRole('admin', 'lead'), updateUserRole);
+router.patch('/:id/restore', requireRole('admin'), restoreUser);
 router.post('/:id/avatar', requireSelfOrAdmin, handleAvatarUpload, uploadAvatar);
 
 export default router;

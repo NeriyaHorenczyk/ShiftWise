@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { LuSearch } from 'react-icons/lu';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import ConfirmModal from '../components/ConfirmModal';
@@ -25,6 +26,7 @@ const Team = () => {
 
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
+  const [search, setSearch] = useState('');
   const [members, setMembers] = useState([]);
   const [totalMembers, setTotalMembers] = useState(0);
   const [page, setPage] = useState(0);
@@ -68,9 +70,16 @@ const Team = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Only an admin needs to wait for a department to be picked (or scoped to
+  // "Unassigned") — usersController.getAllUsers already resolves a lead's
+  // roster server-side from their own user record and ignores whatever
+  // department_id is sent, so gating their fetch on `selectedDept` (which
+  // only exists for the admin dropdown) would just be an artificial wait for
+  // the departments list to resolve first.
+  const deptFilter = isAdmin ? selectedDept : null;
+
   useEffect(() => {
-    // selectedDept starts empty until departments load — nothing to fetch yet.
-    if (!selectedDept) return;
+    if (isAdmin && !deptFilter) return;
 
     let cancelled = false;
     const loadMembers = async () => {
@@ -78,7 +87,8 @@ const Team = () => {
       try {
         const data = await api.getUsers({
           role: 'employee,shift_manager,lead',
-          department_id: selectedDept,
+          ...(deptFilter ? { department_id: deptFilter } : {}),
+          ...(search.trim() ? { search: search.trim() } : {}),
           limit: PAGE_SIZE,
           offset: page * PAGE_SIZE,
         });
@@ -99,7 +109,7 @@ const Team = () => {
     loadMembers();
 
     return () => { cancelled = true; };
-  }, [selectedDept, page]);
+  }, [deptFilter, isAdmin, search, page]);
 
   const handleConfirmAction = async () => {
     try {
@@ -150,18 +160,30 @@ const Team = () => {
             </p>
           </div>
 
-          {isAdmin && (
-            <select
-              className="dept-select"
-              value={selectedDept}
-              onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
-            >
-              {departments.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-              <option value={UNASSIGNED}>Unassigned</option>
-            </select>
-          )}
+          <div className="admin-filters">
+            {isAdmin && (
+              <select
+                className="dept-select"
+                value={selectedDept}
+                onChange={e => { setSelectedDept(e.target.value); setPage(0); }}
+              >
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+                <option value={UNASSIGNED}>Unassigned</option>
+              </select>
+            )}
+            <div className="search-wrap">
+              <LuSearch className="search-icon" size={16} />
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search by name..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(0); }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -173,7 +195,9 @@ const Team = () => {
       ) : (
         <div className="team-list">
           {members.length === 0 ? (
-            <p className="empty-state">No members in this department</p>
+            <p className="empty-state">
+              {search.trim() ? 'No members match your search' : 'No members in this department'}
+            </p>
           ) : (
             members.map(member => (
               <div key={member.username} className="team-card">

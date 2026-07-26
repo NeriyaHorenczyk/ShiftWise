@@ -36,6 +36,8 @@ import {
   SHIFT_EVENT_MIN_DURATION_HOURS,
 } from '../utils/weekGridUtils';
 
+const ERROR_TOAST_DISMISS_MS = 5000;
+
 const Schedule = () => {
   const { isAdmin, isLead, currentUser } = useAuth();
   const { socket } = useSocket();
@@ -76,6 +78,40 @@ const Schedule = () => {
   // live refetch, so the update doesn't feel like a silent, invisible change.
   const [justSynced, setJustSynced] = useState(false);
 
+  // `error` renders as a floating toast (see below) instead of a page banner
+  // — a banner sits above the grid and gets hidden behind any open modal's
+  // overlay, so a failure inside e.g. the publish/delete confirm dialog was
+  // effectively invisible. Auto-dismissing here covers every setError(...)
+  // call site in this component without having to touch each one.
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(''), ERROR_TOAST_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  // Bulk-action result banners (auto-assign/publish/clear/unpublish) get the
+  // same auto-dismiss treatment as `error` above, instead of sitting above
+  // the grid indefinitely until the next bulk action happens to overwrite them.
+  useEffect(() => {
+    if (bulkMessages.length === 0) return;
+    const timer = setTimeout(() => setBulkMessages([]), ERROR_TOAST_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [bulkMessages]);
+
+  // Both banners are tied to whatever the user was just looking at (a
+  // publish failure, a bulk-clear result) — they must not linger and read as
+  // if they apply to wherever the user navigates next within this page.
+  // Cleared directly in the action handlers below (switching date/week,
+  // changing view mode or department, opening a shift modal) rather than in
+  // an effect keyed off that same state, per the react-hooks/set-state-in-
+  // effect rule — this IS the state change, not a reaction to it settling
+  // elsewhere. Leaving the page entirely unmounts the component, which
+  // resets all of this state for free.
+  const clearAlerts = () => {
+    setError('');
+    setBulkMessages([]);
+  };
+
   const weekStart = getWeekStart(anchorDate);
   const monthStart = getMonthStart(anchorDate);
   const weekDays = getWeekDays(weekStart);
@@ -95,9 +131,18 @@ const Schedule = () => {
           } else {
             setSelectedDept(data[0].id);
           }
+        } else {
+          // No department could be resolved for this user (no department_id
+          // assigned, or — for a lead — not actually recorded as any
+          // department's lead). There's nothing to fetch shifts for, so stop
+          // loading here rather than leaving the shifts effect's `if
+          // (!selectedDept) return;` guard spin forever with no way out.
+          setSelectedDept('');
+          setLoading(false);
         }
       } catch (err) {
         setError(err.message);
+        setLoading(false);
       }
     };
     loadDepts();
@@ -106,24 +151,33 @@ const Schedule = () => {
   // Fetches shifts for whatever window the current view actually displays —
   // the full padded month range in month view, or the plain 7-day window in
   // week view — so callers never have to know which view is active.
+  // Only an admin needs to wait for a department to be picked — the backend
+  // (shiftController.getAllShifts) already resolves a lead/employee/shift_
+  // manager's own department server-side from their user record and ignores
+  // whatever department_id they send, so gating their fetch on `selectedDept`
+  // (which only exists so the admin dropdown has something to show) would
+  // just be an artificial wait for the departments list to resolve first —
+  // a one-step waterfall with nothing to show for it.
+  const deptFilter = canPickDept ? selectedDept : null;
+
   const fetchShiftsForCurrentView = async () => {
     if (viewMode === 'month') {
       const weeks = getMonthGridWeeks(getMonthStart(anchorDate));
       return api.getShifts({
-        department_id: selectedDept,
+        ...(deptFilter ? { department_id: deptFilter } : {}),
         start_date: toDateString(weeks[0][0]),
         end_date: toDateString(weeks[weeks.length - 1][6]),
       });
     }
     return api.getShifts({
-      department_id: selectedDept,
+      ...(deptFilter ? { department_id: deptFilter } : {}),
       week_start: toDateString(getWeekStart(anchorDate)),
     });
   };
 
   // load shifts when the view, date, or department changes
   useEffect(() => {
-    if (!selectedDept) return;
+    if (canPickDept && !deptFilter) return;
     const loadShifts = async () => {
       setLoading(true);
       try {
@@ -138,26 +192,33 @@ const Schedule = () => {
     loadShifts();
     // anchorDate.getTime() (a primitive) is the real dependency here — the
     // weekStart/monthStart derived above get fresh Date identities every
-    // render and must not be listed instead.
+    // render and must not be listed instead. deptFilter is intentionally
+    // used instead of selectedDept directly — see its definition above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDept, viewMode, anchorDate.getTime()]);
+  }, [deptFilter, canPickDept, viewMode, anchorDate.getTime()]);
 
-  const prevWeek = () => setAnchorDate(d => {
-    const n = new Date(d);
-    n.setDate(n.getDate() - 7);
-    return n;
-  });
+  const prevWeek = () => {
+    clearAlerts();
+    setAnchorDate(d => {
+      const n = new Date(d);
+      n.setDate(n.getDate() - 7);
+      return n;
+    });
+  };
 
-  const nextWeek = () => setAnchorDate(d => {
-    const n = new Date(d);
-    n.setDate(n.getDate() + 7);
-    return n;
-  });
+  const nextWeek = () => {
+    clearAlerts();
+    setAnchorDate(d => {
+      const n = new Date(d);
+      n.setDate(n.getDate() + 7);
+      return n;
+    });
+  };
 
-  const prevMonth = () => setAnchorDate(d => addMonths(d, -1));
-  const nextMonth = () => setAnchorDate(d => addMonths(d, 1));
+  const prevMonth = () => { clearAlerts(); setAnchorDate(d => addMonths(d, -1)); };
+  const nextMonth = () => { clearAlerts(); setAnchorDate(d => addMonths(d, 1)); };
 
-  const goToToday = () => setAnchorDate(new Date());
+  const goToToday = () => { clearAlerts(); setAnchorDate(new Date()); };
 
   const getSegmentsForDay = (day) => {
     const segments = [];
@@ -177,12 +238,14 @@ const Schedule = () => {
 
   const handleDayClick = (day) => {
     if (!canEdit) return;
+    clearAlerts();
     setSelectedDay(day);
     setShowCreateModal(true);
   };
 
   const handleShiftClick = (e, shift) => {
     e.stopPropagation();
+    clearAlerts();
     setSelectedShift(shift);
     setShowAssignModal(true);
   };
@@ -194,6 +257,12 @@ const Schedule = () => {
       setShowPublishConfirm(false);
       setShowAssignModal(false);
     } catch (err) {
+      // api.js unwraps the backend's { status, message, data } envelope and
+      // throws a plain Error with that message (this app uses fetch, not
+      // axios, so there's no err.response) — err.message is already the
+      // exact validation reason, e.g. "Cannot publish — assign a shift
+      // manager first." Surfaced here (not just the page-level error banner)
+      // so it's visible while the confirm modal is still open on top of it.
       setError(err.message);
     }
   };
@@ -372,7 +441,7 @@ const Schedule = () => {
       <div className="schedule-controls">
         <CalendarNav
           viewMode={viewMode}
-          onViewModeChange={setViewMode}
+          onViewModeChange={mode => { clearAlerts(); setViewMode(mode); }}
           onPrevMonth={prevMonth}
           onPrevWeek={prevWeek}
           onToday={goToToday}
@@ -384,7 +453,7 @@ const Schedule = () => {
           <select
             className="dept-select"
             value={selectedDept}
-            onChange={e => setSelectedDept(e.target.value)}
+            onChange={e => { clearAlerts(); setSelectedDept(e.target.value); }}
           >
             {departments.map(d => (
               <option key={d.id} value={d.id}>{d.name}</option>
@@ -455,12 +524,31 @@ const Schedule = () => {
         </div>
       ))}
 
-      {error && <div className="page-error">{error}</div>}
+      {error && (
+        <div className="toast-stack">
+          <div className="toast toast-error">
+            <div className="toast-body">
+              <span className="toast-title">{error}</span>
+            </div>
+            <button className="toast-close" onClick={() => setError('')} aria-label="Dismiss">
+              <LuX size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Grid */}
       <div className={justSynced ? 'schedule-flash' : ''}>
       {loading ? (
         <div className="page-loading">Loading schedule...</div>
+      ) : !selectedDept ? (
+        <div className="empty-state">
+          {isAdmin
+            ? 'No departments have been created yet. Create one on the Departments page to start scheduling.'
+            : isLead
+              ? "You aren't currently recorded as the leader of any department. Contact an admin to get assigned before you can manage a schedule."
+              : "You don't have a department assigned yet. Contact your administrator to get set up before shifts can be scheduled for you."}
+        </div>
       ) : viewMode === 'month' ? (
         <MonthGrid
           monthStart={monthStart}
@@ -512,7 +600,6 @@ const Schedule = () => {
                     <LuUsers size={11} />
                     {shift.assigned_count}/{shift.required_staff}
                   </span>
-                  {shift.needs_shift_manager && <span className="sm-badge">SM</span>}
                   <span className={`badge badge-${shift.status}`}>{shift.status}</span>
                 </div>
               </div>
@@ -546,7 +633,7 @@ const Schedule = () => {
     departmentId={selectedDept}
     canEdit={canEdit}
     onClose={() => setShowAssignModal(false)}
-    onPublish={() => setShowPublishConfirm(true)}
+    onPublish={() => { setError(''); setShowPublishConfirm(true); }}
     onUnpublish={handleUnpublish}
     onDelete={() => setShowDeleteConfirm(true)}
     onAssigned={(updatedShift) => {
@@ -561,7 +648,7 @@ const Schedule = () => {
           message={`Publish "${selectedShift?.title}"? Employees will be able to see it.`}
           confirmLabel="Publish"
           onConfirm={handlePublish}
-          onCancel={() => setShowPublishConfirm(false)}
+          onCancel={() => { setError(''); setShowPublishConfirm(false); }}
         />
       )}
 
@@ -623,7 +710,6 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
     start_time: '',
     end_time: '',
     required_staff: 1,
-    needs_shift_manager: false,
   });
   const [presets, setPresets] = useState([]);
   const [error, setError] = useState('');
@@ -650,7 +736,6 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
       start_time: toTimeInputValue(preset.start_time),
       end_time: toTimeInputValue(preset.end_time),
       required_staff: preset.required_staff,
-      needs_shift_manager: preset.needs_shift_manager,
     });
   };
 
@@ -665,7 +750,6 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
         start_time: `${dateStr} ${form.start_time}:00`,
         end_time: `${dateStr} ${form.end_time}:00`,
         required_staff: form.required_staff,
-        needs_shift_manager: form.needs_shift_manager,
       });
 
       // fetch the created shift to get full data
@@ -701,7 +785,7 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
                 >
                   <span className="preset-chip-title">{p.title}</span>
                   <span className="preset-chip-detail">
-                    {toTimeInputValue(p.start_time)}–{toTimeInputValue(p.end_time)} · {p.required_staff} staff{p.needs_shift_manager ? ' · SM' : ''}
+                    {toTimeInputValue(p.start_time)}–{toTimeInputValue(p.end_time)} · {p.required_staff} staff
                   </span>
                 </button>
               ))}
@@ -751,17 +835,6 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
               required
             />
           </div>
-          <div className="form-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={form.needs_shift_manager}
-                onChange={e => setForm(p => ({ ...p, needs_shift_manager: e.target.checked }))}
-              />
-              Needs shift manager
-            </label>
-          </div>
-
           {error && <div className="error-message">{error}</div>}
 
           <div className="modal-actions">

@@ -49,7 +49,7 @@ export const getDashboard = async (req, res) => {
     }
 
     // Pending swap requests
-    const swapConditions = [`sr.status IN ('pending', 'accepted')`];
+    const swapConditions = [`sr.status IN ('pending', 'accepted')`, 'sr.deleted_at IS NULL'];
     const swapParams = [];
     if (role === 'employee' || role === 'shift_manager') {
       swapConditions.push('(sr.requester_id = ? OR sr.target_id = ?)');
@@ -72,7 +72,7 @@ export const getDashboard = async (req, res) => {
 
     // Pending leave requests — a lead sees only their own department's,
     // matching how the Leave Requests page itself scopes things for them.
-    const leaveConditions = [`lr.status = 'pending'`];
+    const leaveConditions = [`lr.status = 'pending'`, 'lr.deleted_at IS NULL'];
     const leaveParams = [];
     if (role === 'employee' || role === 'shift_manager') {
       leaveConditions.push('lr.user_id = ?');
@@ -93,13 +93,13 @@ export const getDashboard = async (req, res) => {
     let stats = null;
     if (role === 'admin') {
       const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) AS totalUsers FROM users WHERE deleted_at IS NULL');
-      const [[{ totalDepartments }]] = await pool.query('SELECT COUNT(*) AS totalDepartments FROM departments');
+      const [[{ totalDepartments }]] = await pool.query('SELECT COUNT(*) AS totalDepartments FROM departments WHERE deleted_at IS NULL');
       const [[{ totalShifts }]] = await pool.query('SELECT COUNT(*) AS totalShifts FROM shifts WHERE deleted_at IS NULL');
       const [[{ pendingSwapCount }]] = await pool.query(
-        `SELECT COUNT(*) AS pendingSwapCount FROM swap_requests WHERE status = 'pending'`
+        `SELECT COUNT(*) AS pendingSwapCount FROM swap_requests WHERE status = 'pending' AND deleted_at IS NULL`
       );
       const [[{ pendingLeaveCount }]] = await pool.query(
-        `SELECT COUNT(*) AS pendingLeaveCount FROM leave_requests WHERE status = 'pending'`
+        `SELECT COUNT(*) AS pendingLeaveCount FROM leave_requests WHERE status = 'pending' AND deleted_at IS NULL`
       );
       stats = {
         totalUsers,

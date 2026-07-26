@@ -555,9 +555,12 @@ export const generateShifts = async (req, res) => {
         }
         const endDT = `${endDateStr} ${slot.end_time}`;
 
+        // Every real shift requires a shift manager regardless of what the
+        // originating blueprint slot/preset was set to — same invariant
+        // shiftController.createShift enforces for manually created shifts.
         insertRows.push([
           uuid(), bp.department_id, slot.title, startDT, endDT,
-          slot.required_staff, slot.needs_shift_manager ? 1 : 0, 'draft', req.user.id,
+          slot.required_staff, 1, 'draft', req.user.id,
         ]);
       }
     }

@@ -26,20 +26,50 @@ export const SocketProvider = ({ children }) => {
 
     const instance = io(SOCKET_URL, {
       auth: { token },
+      transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10000,
     });
 
-    instance.on('connect', () => setConnected(true));
+    // StrictMode's dev-only mount→cleanup→mount runs this cleanup while the
+    // WebSocket handshake from the very same `io(...)` call above is still in
+    // flight. Calling `instance.disconnect()` on a transport that hasn't
+    // finished opening yet closes a CONNECTING-state native WebSocket, which
+    // Chrome logs as "WebSocket is closed before the connection is
+    // established" — harmless, but noisy on every single page load. `settled`
+    // defers the actual disconnect until the socket has either connected (so
+    // there's something real to close) or failed outright (so there's
+    // nothing left to wait for); if cleanup runs before either happens, the
+    // pending 'connect'/'connect_error' handlers below finish the job once
+    // the transport actually settles instead of racing it.
+    let settled = false;
+    let cleanedUp = false;
+
+    instance.on('connect', () => {
+      settled = true;
+      if (cleanedUp) {
+        instance.disconnect();
+        return;
+      }
+      setConnected(true);
+    });
     instance.on('disconnect', () => setConnected(false));
     // Real-time features are a layer on top of an app that already works
     // fully over plain HTTP — a connection failure (bad token, server
     // restarting, network blip) is logged and left to auto-reconnect,
     // never surfaced as a blocking error to the user.
     instance.on('connect_error', (err) => {
+      settled = true;
       console.warn('[socket] connection error:', err.message);
+      if (cleanedUp) {
+        // Otherwise, with reconnectionAttempts: Infinity, an instance
+        // abandoned mid-handshake would keep retrying in the background
+        // forever with nothing left holding a reference to it.
+        instance.disconnect();
+        return;
+      }
       setConnected(false);
     });
 
@@ -52,7 +82,13 @@ export const SocketProvider = ({ children }) => {
     setSocket(instance);
 
     return () => {
-      instance.disconnect();
+      cleanedUp = true;
+      if (settled) {
+        instance.disconnect();
+      }
+      // else: still mid-handshake — the 'connect'/'connect_error' handler
+      // above will disconnect it the moment that settles instead of racing
+      // the still-CONNECTING transport right now.
       setSocket(null);
       setConnected(false);
     };

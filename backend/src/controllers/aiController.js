@@ -26,12 +26,12 @@ Use as much detail as necessary to be genuinely useful, but stay under those thr
 // their own department server-side, never trusting a client-supplied one.
 const resolveManagerDept = async (req) => {
   if (req.user.role === 'lead') {
-    const [[dept]] = await pool.query('SELECT id, name FROM departments WHERE lead_id = ?', [req.user.id]);
+    const [[dept]] = await pool.query('SELECT id, name FROM departments WHERE lead_id = ? AND deleted_at IS NULL', [req.user.id]);
     return dept || null;
   }
   const { department_id } = req.body;
   if (!department_id) return null;
-  const [[dept]] = await pool.query('SELECT id, name FROM departments WHERE id = ?', [department_id]);
+  const [[dept]] = await pool.query('SELECT id, name FROM departments WHERE id = ? AND deleted_at IS NULL', [department_id]);
   return dept || null;
 };
 
@@ -46,6 +46,7 @@ const buildWeekContext = async (departmentId, weekStart) => {
      LEFT JOIN shift_assignments sa ON sa.shift_id = s.id
      WHERE s.department_id = ?
        AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+       AND s.deleted_at IS NULL
      GROUP BY s.id
      ORDER BY s.start_time ASC`,
     [departmentId, weekStart, weekStart]
@@ -67,7 +68,7 @@ const buildWeekContext = async (departmentId, weekStart) => {
   }
 
   const [employees] = await pool.query(
-    `SELECT name, role FROM users WHERE department_id = ? AND role IN ('employee', 'shift_manager') ORDER BY name`,
+    `SELECT name, role FROM users WHERE department_id = ? AND role IN ('employee', 'shift_manager') AND deleted_at IS NULL ORDER BY name`,
     [departmentId]
   );
 
@@ -75,7 +76,7 @@ const buildWeekContext = async (departmentId, weekStart) => {
     `SELECT a.day_of_week, a.slot, a.status, u.name
      FROM availability a
      JOIN users u ON u.id = a.user_id
-     WHERE u.department_id = ? AND a.week_start = ? AND a.status != 'available'
+     WHERE u.department_id = ? AND a.week_start = ? AND a.status != 'available' AND u.deleted_at IS NULL
      ORDER BY a.day_of_week, a.slot`,
     [departmentId, weekStart]
   );
@@ -86,6 +87,7 @@ const buildWeekContext = async (departmentId, weekStart) => {
      JOIN users u ON u.id = lr.user_id
      WHERE u.department_id = ? AND lr.status IN ('pending', 'approved')
        AND lr.start_date <= DATE_ADD(?, INTERVAL 6 DAY) AND lr.end_date >= ?
+       AND u.deleted_at IS NULL AND lr.deleted_at IS NULL
      ORDER BY lr.start_date`,
     [departmentId, weekStart, weekStart]
   );
@@ -175,7 +177,8 @@ export const auditSchedule = async (req, res) => {
        LEFT JOIN shift_assignments sa ON sa.user_id = u.id
        LEFT JOIN shifts s ON s.id = sa.shift_id
          AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
-       WHERE u.department_id = ? AND u.role IN ('employee', 'shift_manager')
+         AND s.deleted_at IS NULL
+       WHERE u.department_id = ? AND u.role IN ('employee', 'shift_manager') AND u.deleted_at IS NULL
        GROUP BY u.id, u.name
        ORDER BY hours DESC`,
       [week_start, week_start, dept.id]
@@ -187,6 +190,7 @@ export const auditSchedule = async (req, res) => {
        LEFT JOIN shift_assignments sa ON sa.shift_id = s.id
        WHERE s.department_id = ?
          AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+         AND s.deleted_at IS NULL
        GROUP BY s.id
        ORDER BY s.start_time ASC`,
       [dept.id, week_start, week_start]

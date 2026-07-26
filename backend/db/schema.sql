@@ -6,7 +6,9 @@ CREATE TABLE departments (
   id CHAR(36) PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   lead_id CHAR(36),
-  created_at DATETIME DEFAULT NOW()
+  created_at DATETIME DEFAULT NOW(),
+  deleted_at DATETIME DEFAULT NULL,
+  INDEX idx_departments_deleted_at (deleted_at)
 );
 
 CREATE TABLE users (
@@ -19,7 +21,8 @@ CREATE TABLE users (
   avatar_url VARCHAR(255),
   created_at DATETIME DEFAULT NOW(),
   deleted_at DATETIME DEFAULT NULL,
-  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+  INDEX idx_users_dept_deleted (department_id, deleted_at)
 );
 
 CREATE TABLE passwords (
@@ -45,7 +48,8 @@ CREATE TABLE shifts (
   created_by CHAR(36),
   deleted_at DATETIME DEFAULT NULL,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
-  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_shifts_dept_deleted (department_id, deleted_at)
 );
 
 CREATE TABLE shift_assignments (
@@ -78,9 +82,12 @@ CREATE TABLE swap_requests (
   message VARCHAR(500) DEFAULT NULL,
   lead_comment TEXT,
   created_at DATETIME DEFAULT NOW(),
+  deleted_at DATETIME DEFAULT NULL,
   FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+  FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
+  INDEX idx_swap_requests_requester_deleted (requester_id, deleted_at),
+  INDEX idx_swap_requests_target_deleted (target_id, deleted_at)
 );
 
 CREATE TABLE leave_requests (
@@ -94,8 +101,10 @@ CREATE TABLE leave_requests (
   reviewed_by CHAR(36),
   lead_comment TEXT,
   created_at DATETIME DEFAULT NOW(),
+  deleted_at DATETIME DEFAULT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+  FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_leave_requests_user_deleted (user_id, deleted_at)
 );
 
 CREATE TABLE shift_blueprints (

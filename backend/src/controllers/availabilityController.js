@@ -1,6 +1,6 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
-import { getSlot } from '../utils/slot.js';
+import { getOverlappingSlotKeys } from '../utils/slot.js';
 import { success, created, noData, forbidden, validationError, serverError } from '../utils/response.js';
 import { emitAvailabilityUpdated } from '../services/socketService.js';
 import { withTransaction } from '../utils/transaction.js';
@@ -14,16 +14,20 @@ const getDepartmentId = async (userId) => {
 // day/slot is locked in — it can no longer be changed via availability edits.
 const getLockedSlotKeys = async (userId, weekStart) => {
   const [publishedShifts] = await pool.query(
-    `SELECT s.start_time FROM shifts s
+    `SELECT s.start_time, s.end_time FROM shifts s
      JOIN shift_assignments sa ON sa.shift_id = s.id
      WHERE sa.user_id = ? AND s.status = 'published'
-       AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)`,
+       AND DATE(s.start_time) >= ? AND DATE(s.start_time) < DATE_ADD(?, INTERVAL 7 DAY)
+       AND s.deleted_at IS NULL`,
     [userId, weekStart, weekStart]
   );
-  return new Set(publishedShifts.map(s => {
-    const d = new Date(s.start_time);
-    return `${d.getDay()}_${getSlot(d.getHours())}`;
-  }));
+  const keys = new Set();
+  // A shift spanning multiple slots (e.g. afternoon into evening) must lock
+  // every slot it overlaps, not just the one its start time falls into.
+  publishedShifts.forEach(s => {
+    getOverlappingSlotKeys(s.start_time, s.end_time).forEach(k => keys.add(k));
+  });
+  return keys;
 };
 
 export const getAvailability = async (req, res) => {

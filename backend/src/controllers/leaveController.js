@@ -20,7 +20,7 @@ export const getLeaveRequests = async (req, res) => {
       r.name AS reviewed_by_name
     `;
 
-    const conditions = [];
+    const conditions = ['lr.deleted_at IS NULL'];
     const params = [];
 
     // employees and shift managers only see their own requests
@@ -106,6 +106,7 @@ export const createLeaveRequest = async (req, res) => {
       WHERE user_id = ?
         AND status IN ('pending', 'approved')
         AND start_date <= ? AND end_date >= ?
+        AND deleted_at IS NULL
     `, [req.user.id, end_date, start_date]);
 
     if (overlapping.length > 0)
@@ -140,7 +141,7 @@ export const reviewLeaveRequest = async (req, res) => {
       return validationError(res, 'action must be approve or reject.');
 
     const [requests] = await pool.query(
-      'SELECT * FROM leave_requests WHERE id = ?',
+      'SELECT * FROM leave_requests WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (requests.length === 0)
@@ -211,7 +212,7 @@ export const deleteLeaveRequest = async (req, res) => {
     const { id } = req.params;
 
     const [requests] = await pool.query(
-      'SELECT * FROM leave_requests WHERE id = ?',
+      'SELECT * FROM leave_requests WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (requests.length === 0)
@@ -227,12 +228,32 @@ export const deleteLeaveRequest = async (req, res) => {
     if (leave.status !== 'pending')
       return validationError(res, 'You cannot delete a request that has already been reviewed.');
 
-    await pool.query('DELETE FROM leave_requests WHERE id = ?', [id]);
+    // Soft delete — keeps the record around for historical reporting instead
+    // of erasing it outright.
+    await pool.query('UPDATE leave_requests SET deleted_at = NOW() WHERE id = ?', [id]);
 
     const [[requester]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [leave.user_id]);
     emitLeaveUpdated(requester?.department_id, { reason: 'withdrawn', leaveId: id });
 
     deleted(res, 'Leave request deleted successfully.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+export const restoreLeaveRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [requests] = await pool.query(
+      'SELECT * FROM leave_requests WHERE id = ? AND deleted_at IS NOT NULL',
+      [id]
+    );
+    if (requests.length === 0)
+      return notFound(res, 'Deleted leave request not found.');
+
+    await pool.query('UPDATE leave_requests SET deleted_at = NULL WHERE id = ?', [id]);
+    updated(res, null, 'Leave request restored successfully.');
   } catch (err) {
     serverError(res, err.message);
   }

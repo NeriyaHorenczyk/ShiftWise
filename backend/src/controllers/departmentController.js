@@ -1,6 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { withTransaction } from '../utils/transaction.js';
 
 export const getAllDepartments = async (req, res) => {
   try {
@@ -10,17 +11,18 @@ export const getAllDepartments = async (req, res) => {
         u.username AS lead_username
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
+      WHERE d.deleted_at IS NULL
     `;
     const params = [];
 
     // employees and shift managers should not be aware other departments exist
     if (['employee', 'shift_manager'].includes(req.user.role)) {
-      query += ' WHERE d.id = (SELECT department_id FROM users WHERE id = ?)';
+      query += ' AND d.id = (SELECT department_id FROM users WHERE id = ?)';
       params.push(req.user.id);
     } else if (req.user.role === 'lead') {
       // a lead only manages their own department — no reason for their
       // browser to ever receive every other department's name/lead
-      query += ' WHERE d.lead_id = ?';
+      query += ' AND d.lead_id = ?';
       params.push(req.user.id);
     }
 
@@ -40,7 +42,7 @@ export const getDepartmentById = async (req, res) => {
         u.username AS lead_username
       FROM departments d
       LEFT JOIN users u ON d.lead_id = u.id
-      WHERE d.id = ?
+      WHERE d.id = ? AND d.deleted_at IS NULL
     `, [req.params.id]);
     if (rows.length === 0) return notFound(res, 'Department not found.');
     success(res, rows[0]);
@@ -55,7 +57,7 @@ export const createDepartment = async (req, res) => {
     if (!name) return validationError(res, 'Department name is required.');
 
     const [existing] = await pool.query(
-      'SELECT id FROM departments WHERE name = ?',
+      'SELECT id FROM departments WHERE name = ? AND deleted_at IS NULL',
       [name.trim()]
     );
     if (existing.length > 0)
@@ -89,7 +91,7 @@ export const updateDepartment = async (req, res) => {
     const { id } = req.params;
     let { name, lead_id } = req.body;
 
-    const [departments] = await pool.query('SELECT id, lead_id FROM departments WHERE id = ?', [id]);
+    const [departments] = await pool.query('SELECT id, lead_id FROM departments WHERE id = ? AND deleted_at IS NULL', [id]);
     if (departments.length === 0)
       return notFound(res, 'Department not found.');
 
@@ -103,7 +105,7 @@ export const updateDepartment = async (req, res) => {
 
     if (name !== undefined && name.trim()) {
       const [existing] = await pool.query(
-        'SELECT id FROM departments WHERE name = ? AND id != ?',
+        'SELECT id FROM departments WHERE name = ? AND id != ? AND deleted_at IS NULL',
         [name.trim(), id]
       );
       if (existing.length > 0)
@@ -147,23 +149,71 @@ export const updateDepartment = async (req, res) => {
 export const deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
+    // Explicit opt-in — without it, a caller (UI or direct API use) gets a
+    // 409 reporting how many active members would be unassigned instead of
+    // silently moving people out of their department.
+    const confirmed = req.query.confirm === 'true' || req.body?.confirm === true;
 
     const [departments] = await pool.query(
-      'SELECT id FROM departments WHERE id = ?',
+      'SELECT id FROM departments WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (departments.length === 0)
       return notFound(res, 'Department not found.');
 
     const [members] = await pool.query(
-      'SELECT id FROM users WHERE department_id = ?',
+      'SELECT id FROM users WHERE department_id = ? AND deleted_at IS NULL',
       [id]
     );
-    if (members.length > 0)
-      return validationError(res, 'Cannot delete a department that still has members.');
 
-    await pool.query('DELETE FROM departments WHERE id = ?', [id]);
+    if (members.length > 0 && !confirmed) {
+      return conflict(
+        res,
+        `This department has ${members.length} active member${members.length !== 1 ? 's' : ''}. Deleting it will unassign them from this department. Confirm to proceed.`,
+        { requiresConfirmation: true, memberCount: members.length }
+      );
+    }
+
+    // Soft delete the department — historical shifts/reports reference it by
+    // id and must keep resolving its name correctly; a hard DELETE's ON
+    // DELETE CASCADE would wipe those shifts along with it. Unassigning the
+    // members and soft-deleting the department must land together — a
+    // failure between them would otherwise leave members pointing at a
+    // department that no longer resolves, or a "deleted" department that
+    // still counts active members.
+    await withTransaction(async (conn) => {
+      if (members.length > 0) {
+        await conn.query('UPDATE users SET department_id = NULL WHERE department_id = ?', [id]);
+      }
+      await conn.query('UPDATE departments SET deleted_at = NOW() WHERE id = ?', [id]);
+    });
+
     deleted(res, 'Department deleted successfully.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+export const restoreDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [departments] = await pool.query(
+      'SELECT id FROM departments WHERE id = ? AND deleted_at IS NOT NULL',
+      [id]
+    );
+    if (departments.length === 0)
+      return notFound(res, 'Deleted department not found.');
+
+    const [existing] = await pool.query(
+      'SELECT id FROM departments WHERE id != ? AND name = (SELECT name FROM departments WHERE id = ?) AND deleted_at IS NULL',
+      [id, id]
+    );
+    if (existing.length > 0)
+      return conflict(res, 'Another active department already uses this name — rename it before restoring.');
+
+    await pool.query('UPDATE departments SET deleted_at = NULL WHERE id = ?', [id]);
+    updated(res, null, 'Department restored successfully.');
   } catch (err) {
     serverError(res, err.message);
   }

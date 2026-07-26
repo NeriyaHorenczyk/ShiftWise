@@ -7,6 +7,7 @@ import {
   createShift,
   updateShift,
   deleteShift,
+  restoreShift,
   publishShift,
   unpublishShift,
   assignEmployee,
@@ -34,6 +35,7 @@ router.route('/:id')
   .put(requireRole('lead'), updateShift)
   .delete(requireRole('lead'), deleteShift);
 
+router.patch('/:id/restore', requireRole('admin'), restoreShift);
 router.post('/:id/publish', requireRole('lead'), publishShift);
 router.post('/:id/unpublish', requireRole('lead'), unpublishShift);
 router.post('/:id/assign', requireRole('lead'), assignEmployee);

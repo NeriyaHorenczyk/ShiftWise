@@ -100,7 +100,7 @@ const AdminDepartments = () => {
 
   const handleDelete = async () => {
     try {
-      await api.deleteDepartment(confirmDelete.id);
+      await api.deleteDepartment(confirmDelete.id, { confirm: true });
       setConfirmDelete(null);
       refreshRef.current?.();
     } catch (err) {
@@ -161,8 +161,6 @@ const AdminDepartments = () => {
                     <button
                       className="btn btn-danger btn-sm"
                       onClick={() => setConfirmDelete(dept)}
-                      disabled={count > 0}
-                      title={count > 0 ? 'Move all members out before deleting' : undefined}
                     >
                       <LuTrash2 size={14} />
                       Delete
@@ -240,7 +238,11 @@ const AdminDepartments = () => {
       {confirmDelete && (
         <ConfirmModal
           title="Delete Department"
-          message={`Delete "${confirmDelete.name}"? This cannot be undone.`}
+          message={
+            memberCount(confirmDelete.id) > 0
+              ? `This department has ${memberCount(confirmDelete.id)} active member${memberCount(confirmDelete.id) !== 1 ? 's' : ''}. Deleting it will unassign ${memberCount(confirmDelete.id) !== 1 ? 'them' : 'that member'} from this department — their accounts stay active. Are you sure?`
+              : `Delete "${confirmDelete.name}"? This cannot be undone.`
+          }
           confirmLabel="Delete"
           danger
           onConfirm={handleDelete}

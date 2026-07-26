@@ -5,7 +5,8 @@ import {
   getDepartmentById,
   createDepartment,
   updateDepartment,
-  deleteDepartment
+  deleteDepartment,
+  restoreDepartment
 } from '../controllers/departmentController.js';
 
 const router = Router();
@@ -18,5 +19,7 @@ router.route('/:id')
   .get(getDepartmentById)
   .put(requireRole('admin', 'lead'), updateDepartment)
   .delete(requireRole('admin'), deleteDepartment);
+
+router.patch('/:id/restore', requireRole('admin'), restoreDepartment);
 
 export default router;

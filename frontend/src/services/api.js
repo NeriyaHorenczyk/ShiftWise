@@ -141,7 +141,8 @@ export const api = {
   getDepartmentById: (id) => request(`/departments/${id}`),
   createDepartment: (data) => request('/departments', { method: 'POST', body: JSON.stringify(data) }),
   updateDepartment: (id, data) => request(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteDepartment: (id) => request(`/departments/${id}`, { method: 'DELETE' }),
+  deleteDepartment: (id, { confirm } = {}) =>
+    request(`/departments/${id}${confirm ? '?confirm=true' : ''}`, { method: 'DELETE' }),
 
   // Shifts
   getShifts: (params = {}) => {
@@ -192,6 +193,7 @@ export const api = {
   createSwap: (data) => request('/swaps', { method: 'POST', body: JSON.stringify(data) }),
   respondToSwap: (id, data) => request(`/swaps/${id}/respond`, { method: 'PATCH', body: JSON.stringify(data) }),
   approveSwap: (id, data) => request(`/swaps/${id}/approve`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSwap: (id) => request(`/swaps/${id}`, { method: 'DELETE' }),
 
   // Leave
   getLeave: (params = {}) => {

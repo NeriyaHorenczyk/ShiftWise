@@ -109,7 +109,7 @@ export const updateUser = async (req, res) => {
     let nextDepartmentId = user.department_id;
     if (req.user.role === 'admin' && 'department_id' in req.body) {
       if (department_id) {
-        const [depts] = await pool.query('SELECT id FROM departments WHERE id = ?', [department_id]);
+        const [depts] = await pool.query('SELECT id FROM departments WHERE id = ? AND deleted_at IS NULL', [department_id]);
         if (depts.length === 0) return notFound(res, 'Department not found.');
         nextDepartmentId = department_id;
       } else {
@@ -119,7 +119,7 @@ export const updateUser = async (req, res) => {
 
     if (email && email.trim() !== user.email) {
       const [existing] = await pool.query(
-        'SELECT id FROM users WHERE email = ? AND id != ?',
+        'SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL',
         [email.trim(), id]
       );
       if (existing.length > 0) return conflict(res, 'Email already taken.');
@@ -188,6 +188,20 @@ export const updateUserRole = async (req, res) => {
 
     const nextDeptId = department_id || null;
 
+    if (role === 'lead' && nextDeptId) {
+      const [depts] = await pool.query(
+        'SELECT id, lead_id FROM departments WHERE id = ? AND deleted_at IS NULL',
+        [nextDeptId]
+      );
+      if (depts.length === 0) return notFound(res, 'Department not found.');
+
+      // Only one Leader per department — re-promoting the department's
+      // existing lead (e.g. re-submitting the same assignment) is a no-op,
+      // not a conflict, so only block when it's a *different* user.
+      if (depts[0].lead_id && depts[0].lead_id !== id)
+        return conflict(res, 'This department already has a Leader. Please reassign the current Leader or move this employee to another department first.');
+    }
+
     // A role change can also move department leadership around (promoting
     // someone to lead assigns them as their department's lead_id; demoting
     // or reassigning a lead must clear it from whatever department they
@@ -250,6 +264,35 @@ export const deleteUser = async (req, res) => {
     // would cascade (per the FK constraints) and silently blank those out.
     await pool.query('UPDATE users SET deleted_at = NOW() WHERE id = ?', [id]);
     deleted(res, 'User deleted successfully.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+export const restoreUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [users] = await pool.query('SELECT * FROM users WHERE id = ? AND deleted_at IS NOT NULL', [id]);
+    if (users.length === 0) return notFound(res, 'Deleted user not found.');
+    const user = users[0];
+
+    const [existingUsername] = await pool.query(
+      'SELECT id FROM users WHERE username = ? AND id != ? AND deleted_at IS NULL',
+      [user.username, id]
+    );
+    if (existingUsername.length > 0)
+      return conflict(res, 'Another active user already uses this username — cannot restore.');
+
+    const [existingEmail] = await pool.query(
+      'SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL',
+      [user.email, id]
+    );
+    if (existingEmail.length > 0)
+      return conflict(res, 'Another active user already uses this email — cannot restore.');
+
+    await pool.query('UPDATE users SET deleted_at = NULL WHERE id = ?', [id]);
+    updated(res, null, 'User restored successfully.');
   } catch (err) {
     serverError(res, err.message);
   }

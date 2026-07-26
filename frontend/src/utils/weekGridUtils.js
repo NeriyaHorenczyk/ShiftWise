@@ -107,3 +107,30 @@ export const getSlotForHour = (hour) => {
   if (hour >= 13 && hour < 20) return 'afternoon';
   return 'evening';
 };
+
+// Must match getOverlappingSlotKeys() in backend/src/utils/slot.js — given a
+// shift's [start, end) span, returns every "{dayOfWeek}_{slot}" key it
+// touches. A shift crossing a slot boundary (e.g. 15:00-21:00, afternoon
+// into evening) must lock every slot it overlaps, not just the one its
+// start time falls into.
+export const getOverlappingSlotKeys = (start, end) => {
+  const keys = new Set();
+  let cursor = new Date(start);
+  const endTime = new Date(end);
+
+  while (cursor < endTime) {
+    const hour = cursor.getHours();
+    keys.add(`${cursor.getDay()}_${getSlotForHour(hour)}`);
+
+    const next = new Date(cursor);
+    next.setMinutes(0, 0, 0);
+    if (hour < 6) next.setHours(6);
+    else if (hour < 13) next.setHours(13);
+    else if (hour < 20) next.setHours(20);
+    else next.setHours(24);
+
+    cursor = next < endTime ? next : endTime;
+  }
+
+  return keys;
+};

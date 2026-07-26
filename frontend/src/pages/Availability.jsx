@@ -9,7 +9,7 @@ import {
   isToday,
   addMonths,
 } from '../utils/dateUtils';
-import { eventBlockStyle, getSlotForHour } from '../utils/weekGridUtils';
+import { eventBlockStyle, getOverlappingSlotKeys } from '../utils/weekGridUtils';
 import { LuChevronLeft, LuChevronRight, LuChevronsLeft, LuChevronsRight, LuSearch, LuLock } from 'react-icons/lu';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
@@ -80,11 +80,14 @@ const PersonalAvailability = () => {
         });
         setGrid(newGrid);
 
-        // published shifts lock their day/slot against further edits
-        setLockedSlots(new Set(myShifts.map(s => {
-          const d = new Date(s.start_time);
-          return `${d.getDay()}_${getSlotForHour(d.getHours())}`;
-        })));
+        // published shifts lock their day/slot against further edits — a
+        // shift spanning multiple slots (e.g. afternoon into evening) locks
+        // every slot it overlaps, not just the one its start time falls into
+        const locked = new Set();
+        myShifts.forEach(s => {
+          getOverlappingSlotKeys(s.start_time, s.end_time).forEach(k => locked.add(k));
+        });
+        setLockedSlots(locked);
       } catch (err) {
         setError(err.message);
       } finally {

@@ -10,7 +10,7 @@ export const register = async (req, res) => {
     const { username, email, name, password } = req.body;
 
     const [existing] = await pool.query(
-      'SELECT id FROM users WHERE username = ? OR email = ?',
+      'SELECT id FROM users WHERE (username = ? OR email = ?) AND deleted_at IS NULL',
       [username, email]
     );
     if (existing.length > 0)

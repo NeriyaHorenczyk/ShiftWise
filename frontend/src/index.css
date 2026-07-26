@@ -3318,6 +3318,7 @@ input[type='time'] {
 .toast-success { border-left-color: var(--success); }
 .toast-warning { border-left-color: var(--warning); }
 .toast-info { border-left-color: var(--accent); }
+.toast-error { border-left-color: var(--error); }
 
 .toast-body {
   flex: 1;

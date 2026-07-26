@@ -6,7 +6,8 @@ import {
   getLeaveRequests,
   createLeaveRequest,
   reviewLeaveRequest,
-  deleteLeaveRequest
+  deleteLeaveRequest,
+  restoreLeaveRequest
 } from '../controllers/leaveController.js';
 
 const router = Router();
@@ -28,5 +29,6 @@ router.route('/')
 
 router.patch('/:id/review', requireRole('admin', 'lead'), reviewLeaveRequest);
 router.delete('/:id', requireRole('employee', 'shift_manager'), deleteLeaveRequest);
+router.patch('/:id/restore', requireRole('admin'), restoreLeaveRequest);
 
 export default router;

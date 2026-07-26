@@ -9,7 +9,7 @@ export const getShiftCoverage = async (req, res) => {
       return validationError(res, 'from and to date parameters are required.');
     }
 
-    const conditions = ['s.status = ?', 'DATE(s.start_time) >= ?', 'DATE(s.start_time) <= ?'];
+    const conditions = ['s.status = ?', 'DATE(s.start_time) >= ?', 'DATE(s.start_time) <= ?', 's.deleted_at IS NULL'];
     const params = ['published', from, to];
 
     if (req.user.role === 'lead') {
@@ -55,7 +55,7 @@ export const getEmployeeStats = async (req, res) => {
       return validationError(res, 'from and to date parameters are required.');
     }
 
-    const whereConditions = ["u.role IN ('employee', 'shift_manager')"];
+    const whereConditions = ["u.role IN ('employee', 'shift_manager')", 'u.deleted_at IS NULL'];
     const whereParams = [];
 
     let deptId = department_id;
@@ -88,12 +88,15 @@ export const getEmployeeStats = async (req, res) => {
         AND sh.status = 'published'
         AND DATE(sh.start_time) >= ?
         AND DATE(sh.start_time) <= ?
+        AND sh.deleted_at IS NULL
       LEFT JOIN swap_requests sr_req ON u.id = sr_req.requester_id
         AND DATE(sr_req.created_at) >= ?
         AND DATE(sr_req.created_at) <= ?
+        AND sr_req.deleted_at IS NULL
       LEFT JOIN swap_requests sr_target ON u.id = sr_target.target_id
         AND DATE(sr_target.created_at) >= ?
         AND DATE(sr_target.created_at) <= ?
+        AND sr_target.deleted_at IS NULL
       WHERE ${whereConditions.join(' AND ')}
       GROUP BY u.id, u.name, u.username, u.role
       ORDER BY u.name ASC
@@ -116,7 +119,7 @@ export const getLeaveReport = async (req, res) => {
     }
 
     // overlapping date range: leave overlaps [from,to] if start <= to AND end >= from
-    const conditions = ['lr.start_date <= ?', 'lr.end_date >= ?'];
+    const conditions = ['lr.start_date <= ?', 'lr.end_date >= ?', 'lr.deleted_at IS NULL'];
     const params = [to, from];
 
     if (req.user.role === 'lead') {

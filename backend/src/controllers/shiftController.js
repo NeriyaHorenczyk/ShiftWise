@@ -1,7 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, shiftPublishedEmail, shiftUnpublishedEmail, weekPublishedEmail, weekUnpublishedEmail } from '../utils/email.js';
-import { getSlot, toDateStr } from '../utils/slot.js';
+import { getSlot, getOverlappingSlotKeys, toDateStr } from '../utils/slot.js';
 import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction, TransactionError } from '../utils/transaction.js';
 import { emitScheduleUpdated } from '../services/socketService.js';
@@ -15,11 +15,17 @@ export const getAllShifts = async (req, res) => {
     if (['employee', 'shift_manager'].includes(req.user.role)) {
       const [[me]] = await pool.query('SELECT department_id FROM users WHERE id = ?', [req.user.id]);
       department_id = me?.department_id || null;
+      // No department to scope to (never assigned one, or it was
+      // unassigned) — return empty rather than falling through to the
+      // query below, where an absent department_id would skip the
+      // department filter entirely and leak every department's shifts.
+      if (!department_id) return noData(res, 'You are not assigned to a department.', []);
     } else if (req.user.role === 'lead') {
       // a lead manages exactly one department — force it server-side rather
       // than trusting whatever department_id the client happened to send
-      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ?', [req.user.id]);
+      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ? AND deleted_at IS NULL', [req.user.id]);
       department_id = dept?.id || null;
+      if (!department_id) return noData(res, 'You are not assigned to lead a department.', []);
     }
 
     let query = `
@@ -103,7 +109,7 @@ export const getShiftById = async (req, res) => {
         return forbidden(res, 'Access denied.');
     } else if (req.user.role === 'lead') {
       // a lead can view drafts too, but only within their own department
-      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ?', [req.user.id]);
+      const [[dept]] = await pool.query('SELECT id FROM departments WHERE lead_id = ? AND deleted_at IS NULL', [req.user.id]);
       if (shifts[0].department_id !== dept?.id)
         return forbidden(res, 'Access denied.');
     }
@@ -118,7 +124,12 @@ export const getShiftById = async (req, res) => {
       WHERE sa.shift_id = ?
     `, [req.params.id]);
 
-    success(res, { ...shifts[0], assignments });
+    // getAllShifts computes assigned_count via COUNT(); this endpoint fetches
+    // assignments separately instead, so it must derive the same field here
+    // — otherwise a caller that swaps a cached shift for this response (e.g.
+    // Schedule.jsx after saving assignments) loses the capacity ratio it was
+    // showing on the calendar card.
+    success(res, { ...shifts[0], assigned_count: assignments.length, assignments });
   } catch (err) {
     serverError(res, err.message);
   }
@@ -169,7 +180,7 @@ export const getMyShifts = async (req, res) => {
 
 export const createShift = async (req, res) => {
   try {
-    const { department_id, title, start_time, end_time, required_staff, needs_shift_manager } = req.body;
+    const { department_id, title, start_time, end_time, required_staff } = req.body;
 
     if (!department_id || !title || !start_time || !end_time)
       return validationError(res, 'department_id, title, start_time and end_time are required.');
@@ -180,14 +191,15 @@ export const createShift = async (req, res) => {
     if (new Date(end_time) <= new Date())
       return validationError(res, 'Cannot create a shift that has already ended.');
 
-    // leads can only create shifts for their own department
+    // verify the target department exists and hasn't been soft-deleted, and
+    // (for a lead) that it's the one they manage
+    const [depts] = await pool.query(
+      'SELECT lead_id FROM departments WHERE id = ? AND deleted_at IS NULL',
+      [department_id]
+    );
+    if (depts.length === 0)
+      return notFound(res, 'Department not found.');
     if (req.user.role === 'lead') {
-      const [depts] = await pool.query(
-        'SELECT lead_id FROM departments WHERE id = ?',
-        [department_id]
-      );
-      if (depts.length === 0)
-        return notFound(res, 'Department not found.');
       if (depts[0].lead_id !== req.user.id)
         return forbidden(res, 'You can only create shifts for your own department.');
     }
@@ -200,10 +212,12 @@ export const createShift = async (req, res) => {
       return conflict(res, 'This shift overlaps with an existing shift in this department.');
 
     const id = uuidv4();
+    // Every shift requires a shift manager — there is no per-shift opt-out,
+    // so this is always 1 regardless of what the client sends.
     await pool.query(
       `INSERT INTO shifts (id, department_id, title, start_time, end_time, required_staff, needs_shift_manager, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, department_id, title, start_time, end_time, required_staff || 1, needs_shift_manager ? 1 : 0, req.user.id]
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [id, department_id, title, start_time, end_time, required_staff || 1, req.user.id]
     );
 
     emitScheduleUpdated(department_id, { reason: 'created', shiftId: id });
@@ -241,12 +255,15 @@ export const updateShift = async (req, res) => {
     if (overlapping.length > 0)
       return conflict(res, 'This shift overlaps with an existing shift in this department.');
 
+    // Every shift requires a shift manager, forced true on every update too —
+    // this corrects any shift left over from before this was mandatory.
     await pool.query(
       `UPDATE shifts SET
         title = COALESCE(?, title),
         start_time = COALESCE(?, start_time),
         end_time = COALESCE(?, end_time),
-        required_staff = COALESCE(?, required_staff)
+        required_staff = COALESCE(?, required_staff),
+        needs_shift_manager = 1
       WHERE id = ?`,
       [title || null, start_time || null, end_time || null, required_staff || null, id]
     );
@@ -277,6 +294,33 @@ export const deleteShift = async (req, res) => {
   }
 };
 
+export const restoreShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [shifts] = await pool.query(
+      'SELECT * FROM shifts WHERE id = ? AND deleted_at IS NOT NULL',
+      [id]
+    );
+    if (shifts.length === 0)
+      return notFound(res, 'Deleted shift not found.');
+    const shift = shifts[0];
+
+    const [overlapping] = await pool.query(
+      'SELECT id FROM shifts WHERE department_id = ? AND id != ? AND start_time < ? AND end_time > ? AND deleted_at IS NULL',
+      [shift.department_id, id, shift.end_time, shift.start_time]
+    );
+    if (overlapping.length > 0)
+      return conflict(res, 'This shift overlaps with an existing shift in this department — cannot restore.');
+
+    await pool.query('UPDATE shifts SET deleted_at = NULL WHERE id = ?', [id]);
+    emitScheduleUpdated(shift.department_id, { reason: 'restored', shiftId: id });
+    updated(res, null, 'Shift restored successfully.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
 export const publishShift = async (req, res) => {
   try {
     const { id } = req.params;
@@ -296,6 +340,7 @@ export const publishShift = async (req, res) => {
     );
     if (assignments.length === 0)
       return validationError(res, 'Cannot publish a shift with no assigned employees.');
+    // Every shift requires a shift manager — there is no per-shift opt-out.
     if (!assignments.some(a => a.is_shift_manager))
       return validationError(res, 'Cannot publish — assign a shift manager first.');
 
@@ -368,23 +413,29 @@ export const assignEmployee = async (req, res) => {
       return notFound(res, 'User not found.');
 
     const shiftStart = new Date(shifts[0].start_time);
+    const shiftEnd = new Date(shifts[0].end_time);
     const shiftDateStr = toDateStr(shiftStart);
-    const dayOfWeek = shiftStart.getDay();
-    const slot = getSlot(shiftStart.getHours());
     const weekStart = new Date(shiftStart);
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
+    // A shift can span more than one slot (e.g. starting in the afternoon
+    // and ending in the evening) — the employee must be available across
+    // every slot it overlaps, not just the one its start time falls into.
+    const overlappingKeys = getOverlappingSlotKeys(shiftStart, shiftEnd);
     const [avail] = await pool.query(
-      `SELECT status FROM availability
-       WHERE user_id = ? AND week_start = ? AND day_of_week = ? AND slot = ?`,
-      [user_id, toDateStr(weekStart), dayOfWeek, slot]
+      `SELECT day_of_week, slot, status FROM availability
+       WHERE user_id = ? AND week_start = ?`,
+      [user_id, toDateStr(weekStart)]
     );
-    if (avail.length > 0 && avail[0].status === 'unavailable')
+    const isUnavailable = avail.some(a =>
+      overlappingKeys.has(`${a.day_of_week}_${a.slot}`) && a.status === 'unavailable'
+    );
+    if (isUnavailable)
       return validationError(res, 'This employee marked themselves unavailable for this shift.');
 
     const [onLeave] = await pool.query(
       `SELECT id FROM leave_requests
-       WHERE user_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ?`,
+       WHERE user_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ? AND deleted_at IS NULL`,
       [user_id, shiftDateStr, shiftDateStr]
     );
     if (onLeave.length > 0)
@@ -530,7 +581,7 @@ export const autoAssign = async (req, res) => {
     const [approvedLeave] = await pool.query(
       `SELECT user_id, start_date, end_date FROM leave_requests
        WHERE status = 'approved' AND user_id IN (?)
-         AND start_date <= DATE_ADD(?, INTERVAL 6 DAY) AND end_date >= ?`,
+         AND start_date <= DATE_ADD(?, INTERVAL 6 DAY) AND end_date >= ? AND deleted_at IS NULL`,
       [employeeIds, week_start, week_start]
     );
     const isOnApprovedLeave = (userId, date) => {

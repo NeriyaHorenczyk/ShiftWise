@@ -1,7 +1,7 @@
 import pool from '../../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail, swapApprovedEmail } from '../utils/email.js';
-import { success, created, updated, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
+import { success, created, updated, deleted, noData, notFound, conflict, validationError, forbidden, serverError } from '../utils/response.js';
 import { withTransaction } from '../utils/transaction.js';
 import { emitSwapRequested, emitSwapUpdated, emitScheduleUpdated } from '../services/socketService.js';
 
@@ -25,7 +25,7 @@ export const getSwaps = async (req, res) => {
       s.start_time, s.end_time
     `;
 
-    const conditions = [];
+    const conditions = ['sr.deleted_at IS NULL'];
     const params = [];
 
     // Hide stale requests whose shift has already started — an unresolved
@@ -166,7 +166,7 @@ export const createSwap = async (req, res) => {
     // check no pending swap already exists for this shift by this requester
     const [existing] = await pool.query(
       `SELECT id FROM swap_requests
-       WHERE shift_id = ? AND requester_id = ? AND status = 'pending'`,
+       WHERE shift_id = ? AND requester_id = ? AND status = 'pending' AND deleted_at IS NULL`,
       [shift_id, req.user.id]
     );
     if (existing.length > 0)
@@ -202,7 +202,7 @@ export const respondToSwap = async (req, res) => {
       return validationError(res, 'action must be accept or reject.');
 
     const [swaps] = await pool.query(
-      'SELECT * FROM swap_requests WHERE id = ?',
+      'SELECT * FROM swap_requests WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (swaps.length === 0)
@@ -243,7 +243,7 @@ export const approveSwap = async (req, res) => {
       return validationError(res, 'action must be approve or reject.');
 
     const [swaps] = await pool.query(
-      'SELECT * FROM swap_requests WHERE id = ?',
+      'SELECT * FROM swap_requests WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     if (swaps.length === 0)
@@ -310,6 +310,59 @@ export const approveSwap = async (req, res) => {
     });
 
     updated(res, null, `Swap request ${newStatus}.`);
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+export const deleteSwap = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [swaps] = await pool.query(
+      'SELECT * FROM swap_requests WHERE id = ? AND deleted_at IS NULL',
+      [id]
+    );
+    if (swaps.length === 0)
+      return notFound(res, 'Swap request not found.');
+
+    const swap = swaps[0];
+
+    // only the requester can withdraw their own request
+    if (swap.requester_id !== req.user.id)
+      return forbidden(res, 'You can only withdraw your own swap requests.');
+
+    if (swap.status !== 'pending')
+      return validationError(res, 'You cannot withdraw a request that has already been responded to.');
+
+    // Soft delete — keeps the record around for historical reporting instead
+    // of erasing it outright.
+    await pool.query('UPDATE swap_requests SET deleted_at = NOW() WHERE id = ?', [id]);
+
+    const [[shiftInfo2]] = await pool.query('SELECT department_id FROM shifts WHERE id = ?', [swap.shift_id]);
+    emitSwapUpdated(shiftInfo2?.department_id, [swap.requester_id, swap.target_id], {
+      swapId: id, status: 'withdrawn',
+    });
+
+    deleted(res, 'Swap request withdrawn successfully.');
+  } catch (err) {
+    serverError(res, err.message);
+  }
+};
+
+export const restoreSwap = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [swaps] = await pool.query(
+      'SELECT * FROM swap_requests WHERE id = ? AND deleted_at IS NOT NULL',
+      [id]
+    );
+    if (swaps.length === 0)
+      return notFound(res, 'Deleted swap request not found.');
+
+    await pool.query('UPDATE swap_requests SET deleted_at = NULL WHERE id = ?', [id]);
+    updated(res, null, 'Swap request restored successfully.');
   } catch (err) {
     serverError(res, err.message);
   }

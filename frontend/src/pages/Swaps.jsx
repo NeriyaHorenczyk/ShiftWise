@@ -3,7 +3,10 @@ import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
 import Pagination from '../components/Pagination';
+import ConfirmModal from '../components/ConfirmModal';
 import { LuArrowLeftRight, LuCheck, LuX, LuSearch } from 'react-icons/lu';
+
+const TOAST_DISMISS_MS = 4000;
 
 const PAGE_SIZE = 8;
 
@@ -28,6 +31,9 @@ const Swaps = () => {
   const [toSearch, setToSearch] = useState(''); // canApprove only: target filter
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [confirmWithdraw, setConfirmWithdraw] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
   const refreshRef = useRef(null);
   // Only the very first fetch shows the full-page loader — a search
   // keystroke or page-turn re-runs the effect below too, and flipping
@@ -112,6 +118,31 @@ const Swaps = () => {
     }
   };
 
+  const showToast = (message) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = setTimeout(() => setToast(null), TOAST_DISMISS_MS);
+  };
+
+  // Cleared on unmount so a delayed dismiss never fires against a
+  // component that's no longer there.
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
+
+  const handleWithdraw = async () => {
+    if (!confirmWithdraw) return;
+    try {
+      await api.deleteSwap(confirmWithdraw.id);
+      setConfirmWithdraw(null);
+      refreshRef.current?.();
+      showToast('Swap request withdrawn.');
+    } catch (err) {
+      setError(err.message);
+      setConfirmWithdraw(null);
+    }
+  };
+
   const hasFilters = canApprove && (fromSearch.trim() || toSearch.trim());
   const pending = swaps.filter(s => s.status === 'pending');
   const accepted = swaps.filter(s => s.status === 'accepted');
@@ -180,6 +211,7 @@ const Swaps = () => {
         canApprove={canApprove}
         onRespond={handleRespond}
         onApprove={handleApprove}
+        onCancelRequest={setConfirmWithdraw}
         formatDate={formatDate}
         emptyMessage={hasFilters ? 'No swaps match your filters' : 'No pending swap requests'}
       />
@@ -191,6 +223,7 @@ const Swaps = () => {
         canApprove={canApprove}
         onRespond={handleRespond}
         onApprove={handleApprove}
+        onCancelRequest={setConfirmWithdraw}
         formatDate={formatDate}
         emptyMessage={hasFilters ? 'No swaps match your filters' : 'No swaps awaiting approval'}
       />
@@ -202,16 +235,41 @@ const Swaps = () => {
         canApprove={canApprove}
         onRespond={handleRespond}
         onApprove={handleApprove}
+        onCancelRequest={setConfirmWithdraw}
         formatDate={formatDate}
         emptyMessage={hasFilters ? 'No swaps match your filters' : 'No resolved swap requests'}
       />
 
       <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+
+      {confirmWithdraw && (
+        <ConfirmModal
+          title="Withdraw Swap Request"
+          message={`Withdraw your swap request for "${confirmWithdraw.shift_title}"? The other employee will no longer be able to respond.`}
+          confirmLabel="Withdraw"
+          danger
+          onConfirm={handleWithdraw}
+          onCancel={() => setConfirmWithdraw(null)}
+        />
+      )}
+
+      {toast && (
+        <div className="toast-stack">
+          <div className="toast toast-success">
+            <div className="toast-body">
+              <span className="toast-title">{toast}</span>
+            </div>
+            <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
+              <LuX size={14} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const SwapSection = ({ title, swaps, currentUser, canApprove, onRespond, onApprove, formatDate, emptyMessage }) => (
+const SwapSection = ({ title, swaps, currentUser, canApprove, onRespond, onApprove, onCancelRequest, formatDate, emptyMessage }) => (
   <div className="swaps-section">
     <h3 className="swaps-section-title">
       {title} {swaps.length > 0 && <span className="count-badge">{swaps.length}</span>}
@@ -228,6 +286,7 @@ const SwapSection = ({ title, swaps, currentUser, canApprove, onRespond, onAppro
             canApprove={canApprove}
             onRespond={onRespond}
             onApprove={onApprove}
+            onCancelRequest={onCancelRequest}
             formatDate={formatDate}
           />
         ))}
@@ -236,7 +295,7 @@ const SwapSection = ({ title, swaps, currentUser, canApprove, onRespond, onAppro
   </div>
 );
 
-const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, formatDate }) => {
+const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCancelRequest, formatDate }) => {
   const isRequester = swap.requester_username === currentUser.username;
   const isTarget = swap.target_username === currentUser.username;
 
@@ -296,6 +355,14 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, formatD
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => onRespond(swap.id, 'accept')}>
             <LuCheck size={14} /> Accept
+          </button>
+        </div>
+      )}
+
+      {isRequester && swap.status === 'pending' && (
+        <div className="swap-actions">
+          <button className="btn btn-secondary btn-sm" onClick={() => onCancelRequest(swap)}>
+            <LuX size={14} /> Withdraw
           </button>
         </div>
       )}

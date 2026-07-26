@@ -37,8 +37,8 @@ export const forbidden = (res, message = 'Access denied.') =>
 export const validationError = (res, message = 'Validation failed.') =>
   send(res, 400, 'VALIDATION_ERROR', message, null);
 
-export const conflict = (res, message = 'Resource already exists.') =>
-  send(res, 409, 'CONFLICT', message, null);
+export const conflict = (res, message = 'Resource already exists.', data = null) =>
+  send(res, 409, 'CONFLICT', message, data);
 
 export const serverError = (res, message = 'Internal server error.') =>
   send(res, 500, 'SERVER_ERROR', message, null);
