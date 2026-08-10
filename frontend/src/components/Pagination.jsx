@@ -1,4 +1,4 @@
-import { LuChevronLeft, LuChevronRight } from 'react-icons/lu';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Page-at-a-time pager for admin/lead list views backed by server-side
 // LIMIT/OFFSET (Leave Requests, Swap Requests, Team Availability) — keeps a
@@ -21,7 +21,7 @@ const Pagination = ({ page, pageSize, total, onPageChange }) => {
           disabled={page === 0}
           title="Previous page"
         >
-          <LuChevronLeft size={16} />
+          <ChevronLeft size={16} />
         </button>
         <span className="pagination-info">Page {page + 1} of {totalPages}</span>
         <button
@@ -30,7 +30,7 @@ const Pagination = ({ page, pageSize, total, onPageChange }) => {
           disabled={page + 1 >= totalPages}
           title="Next page"
         >
-          <LuChevronRight size={16} />
+          <ChevronRight size={16} />
         </button>
       </div>
     </div>

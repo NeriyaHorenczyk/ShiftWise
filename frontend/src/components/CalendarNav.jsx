@@ -1,9 +1,9 @@
 import {
-  LuChevronsLeft,
-  LuChevronLeft,
-  LuChevronRight,
-  LuChevronsRight,
-} from 'react-icons/lu';
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+} from 'lucide-react';
 
 // Shared date-navigation controls for the Schedule / My Shifts calendars.
 // The single arrows always step by a week and the double arrows always
@@ -15,19 +15,19 @@ const CalendarNav = ({ viewMode, onViewModeChange, onPrevMonth, onPrevWeek, onTo
     <>
       <div className="week-nav">
         <button className="btn btn-secondary icon-btn" onClick={onPrevMonth} title="Previous month">
-          <LuChevronsLeft size={16} />
+          <ChevronsLeft size={16} />
         </button>
         <button className="btn btn-secondary icon-btn" onClick={onPrevWeek} title="Previous week">
-          <LuChevronLeft size={16} />
+          <ChevronLeft size={16} />
         </button>
         <button className="btn btn-secondary" onClick={onToday}>
           Today
         </button>
         <button className="btn btn-secondary icon-btn" onClick={onNextWeek} title="Next week">
-          <LuChevronRight size={16} />
+          <ChevronRight size={16} />
         </button>
         <button className="btn btn-secondary icon-btn" onClick={onNextMonth} title="Next month">
-          <LuChevronsRight size={16} />
+          <ChevronsRight size={16} />
         </button>
       </div>
 

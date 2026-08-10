@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { LuPlus, LuPencil, LuTrash2, LuX } from 'react-icons/lu';
+import { Plus, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '../../services/api';
 import ConfirmModal from '../../components/ConfirmModal';
 
@@ -139,7 +139,7 @@ const AdminDepartments = () => {
             <p className="page-subtitle">{departments.length} departments</p>
           </div>
           <button className="btn btn-primary btn-sm" onClick={openCreate}>
-            <LuPlus size={16} />
+            <Plus size={16} />
             New Department
           </button>
         </div>
@@ -176,14 +176,14 @@ const AdminDepartments = () => {
                       className="btn btn-secondary btn-sm"
                       onClick={() => openEdit(dept)}
                     >
-                      <LuPencil size={14} />
+                      <Pencil size={14} />
                       Edit
                     </button>
                     <button
                       className="btn btn-danger btn-sm"
                       onClick={() => setConfirmDelete(dept)}
                     >
-                      <LuTrash2 size={14} />
+                      <Trash2 size={14} />
                       Delete
                     </button>
                   </div>
@@ -202,7 +202,7 @@ const AdminDepartments = () => {
                 {editingDept ? `Edit — ${editingDept.name}` : 'New Department'}
               </div>
               <button className="modal-close" onClick={closeModal}>
-                <LuX size={18} />
+                <X size={18} />
               </button>
             </div>
 

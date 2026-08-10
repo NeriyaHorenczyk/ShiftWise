@@ -10,7 +10,7 @@ import {
   addMonths,
 } from '../utils/dateUtils';
 import { eventBlockStyle, getOverlappingSlotKeys } from '../utils/weekGridUtils';
-import { LuChevronLeft, LuChevronRight, LuChevronsLeft, LuChevronsRight, LuSearch, LuLock } from 'react-icons/lu';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Lock } from 'lucide-react';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -183,13 +183,13 @@ const PersonalAvailability = () => {
       <div className="schedule-controls">
         <div className="week-nav">
           <button className="btn btn-secondary icon-btn" onClick={prevWeek}>
-            <LuChevronLeft size={16} />
+            <ChevronLeft size={16} />
           </button>
           <button className="btn btn-secondary" onClick={goToToday}>
             Today
           </button>
           <button className="btn btn-secondary icon-btn" onClick={nextWeek}>
-            <LuChevronRight size={16} />
+            <ChevronRight size={16} />
           </button>
         </div>
 
@@ -241,7 +241,7 @@ const PersonalAvailability = () => {
               >
                 <span className="tg-avail-label">
                   {SLOT_LABELS[slot]}
-                  {isLocked && <LuLock size={10} style={{ marginLeft: '0.25rem' }} />}
+                  {isLocked && <Lock size={10} style={{ marginLeft: '0.25rem' }} />}
                 </span>
                 <span className="tg-avail-status">{effective}</span>
               </div>
@@ -417,19 +417,19 @@ const TeamAvailability = () => {
       <div className="schedule-controls">
         <div className="week-nav">
           <button className="btn btn-secondary icon-btn" onClick={prevMonth} title="Previous month">
-            <LuChevronsLeft size={16} />
+            <ChevronsLeft size={16} />
           </button>
           <button className="btn btn-secondary icon-btn" onClick={prevWeek} title="Previous week">
-            <LuChevronLeft size={16} />
+            <ChevronLeft size={16} />
           </button>
           <button className="btn btn-secondary" onClick={goToToday}>
             Today
           </button>
           <button className="btn btn-secondary icon-btn" onClick={nextWeek} title="Next week">
-            <LuChevronRight size={16} />
+            <ChevronRight size={16} />
           </button>
           <button className="btn btn-secondary icon-btn" onClick={nextMonth} title="Next month">
-            <LuChevronsRight size={16} />
+            <ChevronsRight size={16} />
           </button>
         </div>
 
@@ -447,7 +447,7 @@ const TeamAvailability = () => {
         )}
 
         <div className="search-wrap">
-          <LuSearch size={16} className="search-icon" />
+          <Search size={16} className="search-icon" />
           <input
             type="text"
             className="search-input"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LuSearch } from 'react-icons/lu';
+import { Search } from 'lucide-react';
 import { api, getAssetUrl } from '../../services/api';
 import useAuth from '../../hooks/useAuth';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -147,7 +147,7 @@ const AdminUsers = () => {
 
       <div className="admin-filters">
         <div className="search-wrap">
-          <LuSearch size={16} className="search-icon" />
+          <Search size={16} className="search-icon" />
           <input
             type="text"
             className="search-input"

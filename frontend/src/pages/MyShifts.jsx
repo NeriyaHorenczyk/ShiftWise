@@ -15,7 +15,7 @@ import {
   getMonthGridWeeks,
   formatMonthLabel,
 } from '../utils/dateUtils';
-import { LuX, LuLoaderCircle } from 'react-icons/lu';
+import { X, LoaderCircle } from 'lucide-react';
 import WeekTimeGrid from '../components/WeekTimeGrid';
 import MonthGrid from '../components/MonthGrid';
 import CalendarNav from '../components/CalendarNav';
@@ -214,7 +214,7 @@ const MyShifts = () => {
               {toast.message && <span className="toast-message">{toast.message}</span>}
             </div>
             <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
-              <LuX size={14} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -443,7 +443,7 @@ const SwapRequestModal = ({ shift, currentUser, ensureUsers, onSwapCreated, onSw
                 {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
               </p>
             </div>
-            <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+            <button className="modal-close" onClick={onClose}><X size={18} /></button>
           </div>
 
           <div className="warning-message">
@@ -468,7 +468,7 @@ const SwapRequestModal = ({ shift, currentUser, ensureUsers, onSwapCreated, onSw
               {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
             </p>
           </div>
-          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         <div className="form-group">
@@ -510,7 +510,7 @@ const SwapRequestModal = ({ shift, currentUser, ensureUsers, onSwapCreated, onSw
             onClick={handleSwapRequest}
             disabled={!targetUsername || loading || colleaguesLoading}
           >
-            {loading ? <><LuLoaderCircle size={14} className="spin" /> Sending...</> : 'Send request'}
+            {loading ? <><LoaderCircle size={14} className="spin" /> Sending...</> : 'Send request'}
           </button>
         </div>
       </div>

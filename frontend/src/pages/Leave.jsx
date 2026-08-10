@@ -3,7 +3,7 @@ import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
 import Pagination from '../components/Pagination';
-import { LuFileText, LuPlus, LuX, LuCheck, LuPaperclip, LuSparkles, LuLoaderCircle, LuSearch } from 'react-icons/lu';
+import { FileText, Plus, X, Check, Paperclip, Sparkles, LoaderCircle, Search } from 'lucide-react';
 
 const PAGE_SIZE = 8;
 
@@ -150,7 +150,7 @@ const Leave = () => {
                 </select>
               )}
               <div className="search-wrap">
-                <LuSearch className="search-icon" size={16} />
+                <Search className="search-icon" size={16} />
                 <input
                   type="text"
                   className="search-input"
@@ -163,7 +163,7 @@ const Leave = () => {
           )}
           {!canReview && (
             <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-              <LuPlus size={16} />
+              <Plus size={16} />
               New request
             </button>
           )}
@@ -246,7 +246,7 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
     <div className="leave-card">
       <div className="leave-card-header">
         <div className="leave-card-info">
-          <LuFileText size={36} className="leave-icon" />
+          <FileText size={36} className="leave-icon" />
           <div>
             <span className="leave-name">{isOwner ? 'Your request' : request.user_name}</span>
             <span className="leave-dates">
@@ -258,7 +258,7 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
           <span className={`badge badge-${request.status}`}>{request.status}</span>
           {isOwner && request.status === 'pending' && (
             <button className="icon-btn-danger" onClick={() => onDelete(request.id)} title="Cancel request">
-              <LuX size={14} />
+              <X size={14} />
             </button>
           )}
         </div>
@@ -275,7 +275,7 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
             rel="noreferrer"
             className="leave-document"
         >
-            <LuPaperclip size={16} />
+            <Paperclip size={16} />
             View document
         </a>
         )}
@@ -310,10 +310,10 @@ const LeaveCard = ({ request, currentUser, canReview, onReview, onDelete, format
                   Cancel
                 </button>
                 <button className="btn btn-danger btn-sm" onClick={() => onReview(request.id, 'reject', comment)}>
-                  <LuX size={14} /> Reject
+                  <X size={14} /> Reject
                 </button>
                 <button className="btn btn-primary btn-sm" onClick={() => onReview(request.id, 'approve', comment)}>
-                  <LuCheck size={14} /> Approve
+                  <Check size={14} /> Approve
                 </button>
               </div>
             </div>
@@ -384,7 +384,7 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">New leave request</h3>
-          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -419,7 +419,7 @@ const CreateLeaveModal = ({ onClose, onCreated }) => {
                 disabled={!canRefine || refining}
                 title={canRefine ? 'Rewrite your note as a polished, professional reason' : 'Select start and end dates and enter a reason first'}
               >
-                {refining ? <LuLoaderCircle size={14} className="spin" /> : <LuSparkles size={14} />}
+                {refining ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}
                 Refine with AI
               </button>
             </div>

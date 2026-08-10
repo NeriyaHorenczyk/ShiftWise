@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LuPlus, LuTrash2, LuCalendarCheck, LuZap, LuBookmark, LuSave, LuFolderOpen } from 'react-icons/lu';
+import { Plus, Trash2, CalendarCheck, Zap, Bookmark, Save, FolderOpen } from 'lucide-react';
 import { api } from '../services/api';
 import { getWeekStart, toDateString, formatWeekRange } from '../utils/dateUtils';
 import ConfirmModal from '../components/ConfirmModal';
@@ -239,7 +239,7 @@ const BpShiftCard = ({ slot, onRemove }) => (
       </div>
     </div>
     <button className="icon-btn-danger" onClick={onRemove} title="Remove slot">
-      <LuTrash2 size={13} />
+      <Trash2 size={13} />
     </button>
   </div>
 );
@@ -252,7 +252,7 @@ const OverrideShiftRow = ({ shift, onRemove }) => (
     <span className="bp-shift-staff">{shift.required_staff} staff</span>
     {shift.needs_shift_manager && <span className="sm-badge">SM</span>}
     <button className="icon-btn-danger" onClick={onRemove} title="Remove shift">
-      <LuTrash2 size={12} />
+      <Trash2 size={12} />
     </button>
   </div>
 );
@@ -439,7 +439,7 @@ const Blueprint = () => {
 
       {!blueprint ? (
         <div className="blueprint-empty">
-          <LuCalendarCheck size={48} strokeWidth={1.5} />
+          <CalendarCheck size={48} strokeWidth={1.5} />
           <h3>No blueprint yet</h3>
           <p>Create a weekly template and generate draft shifts for any week in seconds.</p>
           <button className="btn btn-primary" onClick={handleCreate}>Create Blueprint</button>
@@ -454,7 +454,7 @@ const Blueprint = () => {
                 <p className="blueprint-section-hint">Save commonly used shifts here — they appear as one-click shortcuts when adding shifts to any day.</p>
               </div>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowAddPreset(true)}>
-                <LuBookmark size={14} /> Save Preset
+                <Bookmark size={14} /> Save Preset
               </button>
             </div>
 
@@ -473,7 +473,7 @@ const Blueprint = () => {
                       </div>
                     </div>
                     <button className="icon-btn-danger" onClick={() => handleRemovePreset(p.id)} title="Remove preset">
-                      <LuTrash2 size={13} />
+                      <Trash2 size={13} />
                     </button>
                   </div>
                 ))}
@@ -489,7 +489,7 @@ const Blueprint = () => {
                 <p className="blueprint-section-hint">Click <strong>+</strong> on any day to add a recurring shift slot.</p>
               </div>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowSaveTemplateModal(true)}>
-                <LuSave size={14} /> Save as Template
+                <Save size={14} /> Save as Template
               </button>
             </div>
 
@@ -509,14 +509,14 @@ const Blueprint = () => {
                         onClick={() => setApplyTemplateId(t.id)}
                         title="Load this template into the grid below"
                       >
-                        <LuFolderOpen size={13} /> Load
+                        <FolderOpen size={13} /> Load
                       </button>
                       <button
                         className="icon-btn-danger"
                         onClick={() => handleDeleteTemplate(t.id)}
                         title="Delete template"
                       >
-                        <LuTrash2 size={13} />
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   </div>
@@ -530,7 +530,7 @@ const Blueprint = () => {
                   <div className="schedule-day-header">
                     <span className="day-name">{name}</span>
                     <button className="add-shift-btn" onClick={() => setAddShiftDay(i)} title={`Add shift on ${name}`}>
-                      <LuPlus size={14} />
+                      <Plus size={14} />
                     </button>
                   </div>
                   <div className="schedule-day-shifts">
@@ -551,7 +551,7 @@ const Blueprint = () => {
             <div className="blueprint-section-header">
               <h3 className="blueprint-section-title">Date Overrides</h3>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowOverrideModal(true)}>
-                <LuPlus size={14} /> Add Override
+                <Plus size={14} /> Add Override
               </button>
             </div>
 
@@ -571,7 +571,7 @@ const Blueprint = () => {
                         <span className="bp-override-label">{ov.label}</span>
                       </div>
                       <button className="icon-btn-danger" onClick={() => handleRemoveOverride(ov.id)} title="Remove override">
-                        <LuTrash2 size={14} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
 
@@ -588,7 +588,7 @@ const Blueprint = () => {
                         ))
                       )}
                       <button className="btn-link-sm" onClick={() => setAddOverrideShiftId(ov.id)}>
-                        <LuPlus size={13} /> Add shift for this date
+                        <Plus size={13} /> Add shift for this date
                       </button>
                     </div>
                   </div>
@@ -611,7 +611,7 @@ const Blueprint = () => {
                 <input className="date-input" type="date" value={weekToGenerate} onChange={handleWeekChange} />
               </div>
               <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || !weekToGenerate}>
-                <LuZap size={15} />
+                <Zap size={15} />
                 {generating ? 'Generating…' : 'Generate Draft Shifts'}
               </button>
             </div>

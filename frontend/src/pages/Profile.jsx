@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { LuCamera, LuX } from 'react-icons/lu';
+import { Camera, X } from 'lucide-react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 
@@ -158,7 +158,7 @@ const Profile = () => {
                   title="Change photo"
                   disabled={avatarLoading}
                 >
-                  <LuCamera size={16} />
+                  <Camera size={16} />
                 </button>
               </div>
               <input
@@ -307,7 +307,7 @@ const Profile = () => {
             onClick={() => setShowAvatarPreview(false)}
             title="Close"
           >
-            <LuX size={22} />
+            <X size={22} />
           </button>
           <img
             src={getAssetUrl(currentUser.avatar_url)}

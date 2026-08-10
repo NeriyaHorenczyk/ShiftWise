@@ -1,4 +1,4 @@
-import { LuX } from 'react-icons/lu';
+import { X } from 'lucide-react';
 
 // Displays the AI Schedule Auditor's fairness/burnout report. Reuses the
 // standard .modal/.modal-overlay chrome (see ConfirmModal) rather than
@@ -9,7 +9,7 @@ const AuditModal = ({ report, loading, error, onClose }) => {
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">AI Schedule Audit</h3>
-          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         {loading && <div className="page-loading">Analyzing schedule...</div>}

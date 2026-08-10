@@ -4,7 +4,7 @@ import useAuth from '../hooks/useAuth';
 import useSocket from '../hooks/useSocket';
 import Pagination from '../components/Pagination';
 import ConfirmModal from '../components/ConfirmModal';
-import { LuArrowLeftRight, LuCheck, LuX, LuSearch } from 'react-icons/lu';
+import { ArrowLeftRight, Check, X, Search } from 'lucide-react';
 
 const TOAST_DISMISS_MS = 4000;
 
@@ -188,7 +188,7 @@ const Swaps = () => {
                 </select>
               )}
               <div className="search-wrap">
-                <LuSearch className="search-icon" size={16} />
+                <Search className="search-icon" size={16} />
                 <input
                   type="text"
                   className="search-input"
@@ -198,7 +198,7 @@ const Swaps = () => {
                 />
               </div>
               <div className="search-wrap">
-                <LuSearch className="search-icon" size={16} />
+                <Search className="search-icon" size={16} />
                 <input
                   type="text"
                   className="search-input"
@@ -274,7 +274,7 @@ const Swaps = () => {
               <span className="toast-message">{toast.message}</span>
             </div>
             <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">
-              <LuX size={14} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -317,7 +317,7 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCance
     <div className="swap-card">
       <div className="swap-card-header">
         <div className="swap-card-shift">
-          <LuArrowLeftRight size={16} className="swap-icon" />
+          <ArrowLeftRight size={16} className="swap-icon" />
           <span className="swap-shift-title">{swap.shift_title}</span>
           <span className={`badge badge-${swap.status}`}>{STATUS_LABELS[swap.status]}</span>
         </div>
@@ -332,7 +332,7 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCance
               {isRequester ? 'You' : swap.requester_name}
             </span>
           </div>
-          <LuArrowLeftRight size={14} className="swap-arrow" />
+          <ArrowLeftRight size={14} className="swap-arrow" />
           <div className={`swap-party ${isTarget ? 'is-you' : ''}`}>
             <span className="party-label">To</span>
             <span className="party-name">
@@ -365,10 +365,10 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCance
       {isTarget && swap.status === 'pending' && (
         <div className="swap-actions">
           <button className="btn btn-danger btn-sm" onClick={() => onRespond(swap.id, 'reject')}>
-            <LuX size={14} /> Decline
+            <X size={14} /> Decline
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => onRespond(swap.id, 'accept')}>
-            <LuCheck size={14} /> Accept
+            <Check size={14} /> Accept
           </button>
         </div>
       )}
@@ -376,7 +376,7 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCance
       {isRequester && swap.status === 'pending' && (
         <div className="swap-actions">
           <button className="btn btn-secondary btn-sm" onClick={() => onCancelRequest(swap)}>
-            <LuX size={14} /> Withdraw
+            <X size={14} /> Withdraw
           </button>
         </div>
       )}
@@ -384,10 +384,10 @@ const SwapCard = ({ swap, currentUser, canApprove, onRespond, onApprove, onCance
       {canApprove && swap.status === 'accepted' && (
         <div className="swap-actions">
           <button className="btn btn-danger btn-sm" onClick={() => onApprove(swap.id, 'reject')}>
-            <LuX size={14} /> Reject
+            <X size={14} /> Reject
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => onApprove(swap.id, 'approve')}>
-            <LuCheck size={14} /> Approve
+            <Check size={14} /> Approve
           </button>
         </div>
       )}

@@ -15,11 +15,11 @@ import {
   formatMonthLabel,
 } from '../utils/dateUtils';
 import {
-  LuPlus,
-  LuUsers,
-  LuX,
-  LuSparkles,
-} from 'react-icons/lu';
+  Plus,
+  Users,
+  X,
+  Sparkles,
+} from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import WeekTimeGrid from '../components/WeekTimeGrid';
 import MonthGrid from '../components/MonthGrid';
@@ -510,7 +510,7 @@ const Schedule = () => {
             disabled={auditLoading}
             title="Get an AI-generated fairness and burnout report for this week"
           >
-            <LuSparkles size={16} />
+            <Sparkles size={16} />
             Analyze Schedule with AI
           </button>
         )}
@@ -573,7 +573,7 @@ const Schedule = () => {
               <span className="toast-title">{error}</span>
             </div>
             <button className="toast-close" onClick={() => setError('')} aria-label="Dismiss">
-              <LuX size={14} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -639,7 +639,7 @@ const Schedule = () => {
                 </div>
                 <div className="tg-event-meta">
                   <span className="tg-event-staff">
-                    <LuUsers size={11} />
+                    <Users size={11} />
                     {shift.assigned_count}/{shift.required_staff}
                   </span>
                   <span className={`badge badge-${shift.status}`}>{shift.status}</span>
@@ -817,7 +817,7 @@ const CreateShiftModal = ({ day, departmentId, onClose, onCreated }) => {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">New shift — {formatDay(day)}</h3>
-          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         {presets.length > 0 && (
@@ -1002,7 +1002,7 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, allUsers
               {formatTime(shift.start_time)} – {formatTime(shift.end_time)} · {shift.department_name}
             </p>
           </div>
-          <button className="modal-close" onClick={onClose}><LuX size={18} /></button>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         <div className="shift-detail-body">
@@ -1027,7 +1027,7 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, allUsers
                         onClick={() => handleUnassign(a.username)}
                         title="Remove"
                       >
-                        <LuX size={14} />
+                        <X size={14} />
                       </button>
                     )}
                   </div>
@@ -1066,7 +1066,7 @@ const ShiftDetailModal = ({ shift: initialShift, departmentId, canEdit, allUsers
                         disabled={atCapacity}
                         title={atCapacity ? 'Shift is at full capacity' : undefined}
                       >
-                        <LuPlus size={14} />
+                        <Plus size={14} />
                       </button>
                     </div>
                   </div>

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { LuBot, LuX, LuSend, LuLoaderCircle } from 'react-icons/lu';
+import { Bot, X, Send, LoaderCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 // Floating chat button + slide-over panel, shown on manager pages (Schedule).
@@ -43,7 +43,7 @@ const AiCopilot = ({ weekStart }) => {
         title="ShiftWise Copilot"
         aria-label="Open ShiftWise Copilot"
       >
-        <LuBot size={22} />
+        <Bot size={22} />
       </button>
 
       {open && (
@@ -51,11 +51,11 @@ const AiCopilot = ({ weekStart }) => {
           <div className="ai-copilot-panel" onClick={e => e.stopPropagation()}>
             <div className="ai-copilot-header">
               <div className="ai-copilot-title">
-                <LuBot size={18} />
+                <Bot size={18} />
                 <span>ShiftWise Copilot</span>
               </div>
               <button className="modal-close" onClick={() => setOpen(false)}>
-                <LuX size={18} />
+                <X size={18} />
               </button>
             </div>
 
@@ -70,7 +70,7 @@ const AiCopilot = ({ weekStart }) => {
               ))}
               {loading && (
                 <div className="ai-copilot-msg assistant ai-copilot-typing">
-                  <LuLoaderCircle size={14} className="spin" /> Thinking...
+                  <LoaderCircle size={14} className="spin" /> Thinking...
                 </div>
               )}
             </div>
@@ -91,7 +91,7 @@ const AiCopilot = ({ weekStart }) => {
                 disabled={loading || !input.trim()}
                 aria-label="Send"
               >
-                <LuSend size={16} />
+                <Send size={16} />
               </button>
             </form>
           </div>

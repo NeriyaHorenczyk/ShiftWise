@@ -1,23 +1,23 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LuLayoutDashboard,
-  LuCalendarDays,
-  LuCalendarCheck,
-  LuClipboardList,
-  LuArrowLeftRight,
-  LuFileText,
-  LuUsers,
-  LuBuilding2,
-  LuTrendingUp,
-  LuCopy,
-  LuUser,
-  LuSun,
-  LuMoon,
-  LuLogOut,
-  LuChevronLeft,
-  LuChevronRight,
-} from 'react-icons/lu';
+  LayoutDashboard,
+  CalendarDays,
+  CalendarCheck,
+  ClipboardList,
+  ArrowLeftRight,
+  FileText,
+  Users,
+  Building2,
+  TrendingUp,
+  Copy,
+  User,
+  Sun,
+  Moon,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import useAuth from '../hooks/useAuth';
 import useTheme from '../hooks/useTheme';
 import ConfirmModal from './ConfirmModal';
@@ -25,27 +25,27 @@ import NotificationCenter from './NotificationCenter';
 import { getAssetUrl } from '../services/api';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LuLayoutDashboard },
-  { to: '/schedule', label: 'Schedule', icon: LuCalendarDays },
-  { to: '/my-shifts', label: 'My Shifts', icon: LuCalendarCheck },
-  { to: '/availability', label: 'Availability', icon: LuClipboardList },
-  { to: '/swaps', label: 'Swap Requests', icon: LuArrowLeftRight },
-  { to: '/leave', label: 'Leave Requests', icon: LuFileText },
-  { to: '/profile', label: 'Profile', icon: LuUser },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/schedule', label: 'Schedule', icon: CalendarDays },
+  { to: '/my-shifts', label: 'My Shifts', icon: CalendarCheck },
+  { to: '/availability', label: 'Availability', icon: ClipboardList },
+  { to: '/swaps', label: 'Swap Requests', icon: ArrowLeftRight },
+  { to: '/leave', label: 'Leave Requests', icon: FileText },
+  { to: '/profile', label: 'Profile', icon: User },
 ];
 
 const leadAdminItems = [
-  { to: '/team', label: 'Team', icon: LuUsers },
-  { to: '/reports', label: 'Reports', icon: LuTrendingUp },
+  { to: '/team', label: 'Team', icon: Users },
+  { to: '/reports', label: 'Reports', icon: TrendingUp },
 ];
 
 const leadOnlyItems = [
-  { to: '/blueprint', label: 'Blueprint', icon: LuCopy },
+  { to: '/blueprint', label: 'Blueprint', icon: Copy },
 ];
 
 const adminItems = [
-  { to: '/admin/users', label: 'Users', icon: LuUsers },
-  { to: '/admin/departments', label: 'Departments', icon: LuBuilding2 },
+  { to: '/admin/users', label: 'Users', icon: Users },
+  { to: '/admin/departments', label: 'Departments', icon: Building2 },
 ];
 
 const Layout = ({ children }) => {
@@ -67,7 +67,7 @@ const Layout = ({ children }) => {
         <div className="sidebar-header">
           {!collapsed && <h1 className="logo">ShiftWise</h1>}
           <button className="collapse-btn" onClick={() => setCollapsed(prev => !prev)}>
-            {collapsed ? <LuChevronRight size={18} /> : <LuChevronLeft size={18} />}
+            {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
         </div>
 
@@ -89,7 +89,7 @@ const Layout = ({ children }) => {
           </div>
 
           <button className="logout-btn" onClick={() => setShowLogoutModal(true)} title="Sign out">
-            <LuLogOut size={18} />
+            <LogOut size={18} />
             {!collapsed && <span>Sign out</span>}
           </button>
         </div>
@@ -166,11 +166,11 @@ const Layout = ({ children }) => {
               mobile-only copy here, phone users would have no way to sign
               out or switch theme at all. Invisible above that breakpoint. */}
           <button type="button" className="nav-item mobile-only" onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'}>
-            {isDark ? <LuSun size={18} className="nav-icon" /> : <LuMoon size={18} className="nav-icon" />}
+            {isDark ? <Sun size={18} className="nav-icon" /> : <Moon size={18} className="nav-icon" />}
             <span>{isDark ? 'Light' : 'Dark'}</span>
           </button>
           <button type="button" className="nav-item mobile-only" onClick={() => setShowLogoutModal(true)} title="Sign out">
-            <LuLogOut size={18} className="nav-icon" />
+            <LogOut size={18} className="nav-icon" />
             <span>Sign out</span>
           </button>
         </nav>
@@ -178,8 +178,8 @@ const Layout = ({ children }) => {
         <div className="sidebar-footer">
           <button className="theme-toggle" onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'}>
             {isDark
-              ? <LuSun size={18} className="sun-icon" />
-              : <LuMoon size={18} className="moon-icon" />
+              ? <Sun size={18} className="sun-icon" />
+              : <Moon size={18} className="moon-icon" />
             }
             {!collapsed && <span>{isDark ? 'Light mode' : 'Dark mode'}</span>}
           </button>

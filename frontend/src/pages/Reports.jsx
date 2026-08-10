@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LuPrinter } from 'react-icons/lu';
+import { Printer } from 'lucide-react';
 import { api } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import { toDateString } from '../utils/dateUtils';
@@ -334,7 +334,7 @@ const Reports = () => {
             <p className="page-subtitle">Shift coverage, leave history and employee stats</p>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
-            <LuPrinter size={16} />
+            <Printer size={16} />
             Print / Save PDF
           </button>
         </div>

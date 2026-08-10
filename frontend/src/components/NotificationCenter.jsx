@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LuX } from 'react-icons/lu';
+import { X } from 'lucide-react';
 import useSocket from '../hooks/useSocket';
 
 let nextToastId = 0;
@@ -82,7 +82,7 @@ const NotificationCenter = () => {
             {t.message && <span className="toast-message">{t.message}</span>}
           </div>
           <button className="toast-close" onClick={() => dismiss(t.id)} aria-label="Dismiss">
-            <LuX size={14} />
+            <X size={14} />
           </button>
         </div>
       ))}

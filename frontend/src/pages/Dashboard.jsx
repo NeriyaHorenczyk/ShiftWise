@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
 import { api } from '../services/api';
-import { LuSearch } from 'react-icons/lu';
+import { Search } from 'lucide-react';
 
 const Dashboard = () => {
   const { currentUser, isAdmin, isLead } = useAuth();
@@ -78,7 +78,7 @@ const Dashboard = () => {
           </div>
 
           <div className="search-wrap">
-            <LuSearch className="search-icon" size={16} />
+            <Search className="search-icon" size={16} />
             <input
               type="text"
               className="search-input"

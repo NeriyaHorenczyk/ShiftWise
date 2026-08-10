@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { LuSearch } from 'react-icons/lu';
+import { Search } from 'lucide-react';
 import { api, getAssetUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import ConfirmModal from '../components/ConfirmModal';
@@ -174,7 +174,7 @@ const Team = () => {
               </select>
             )}
             <div className="search-wrap">
-              <LuSearch className="search-icon" size={16} />
+              <Search className="search-icon" size={16} />
               <input
                 type="text"
                 className="search-input"
